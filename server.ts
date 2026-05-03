@@ -133,14 +133,23 @@ io.on('connection', (socket) => {
       if (data.state === 'dead') {
         player.state = 'dead';
         
-        if (data.killedBy && state.players[data.killedBy]) {
-          const killer = state.players[data.killedBy];
-          io.emit('player_killed', {
-            killerId: killer.id,
-            killerName: killer.name,
-            victimId: player.id,
-            victimName: player.name
-          });
+        if (data.killedBy) {
+          if (state.players[data.killedBy]) {
+            const killer = state.players[data.killedBy];
+            io.emit('player_killed', {
+              killerId: killer.id,
+              killerName: killer.name,
+              victimId: player.id,
+              victimName: player.name
+            });
+          } else if (data.killedBy === 'the wall') {
+            io.emit('player_killed', {
+              killerId: 'wall',
+              killerName: 'The Wall',
+              victimId: player.id,
+              victimName: player.name
+            });
+          }
         }
 
         // Drop orbs

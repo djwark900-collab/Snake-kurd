@@ -96,5 +96,9 @@ service cloud.firestore {
       // Scores are immutable
       allow update, delete: if false;
     }
+
+    match /test/connection {
+      allow get: if true;
+    }
   }
 }

@@ -5,7 +5,7 @@
 
 import { useGameStore, SKINS } from '../store/gameStore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, ShoppingBag, LogIn, LogOut, User, DollarSign, ChevronLeft, Check, Mail, Lock, UserPlus, Trash2, Settings } from 'lucide-react';
+import { Trophy, ShoppingBag, LogIn, LogOut, User, DollarSign, ChevronLeft, Check, Mail, Lock, UserPlus, Trash2, Settings, Share2 } from 'lucide-react';
 import { useState } from 'react';
 import { GameState, WORLD_SIZE } from '../shared/types';
 
@@ -541,6 +541,16 @@ export function UI() {
 
               <div className="pt-4 border-t border-white/5 flex flex-col gap-2">
                 <button 
+                   onClick={() => {
+                     navigator.clipboard.writeText(window.location.href);
+                     useGameStore.getState().addNotification('Invite link copied!');
+                   }}
+                   className="w-full py-3 bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-blue-500 transition-colors"
+                >
+                  <Share2 size={14} />
+                  Invite Friends
+                </button>
+                <button 
                    onClick={() => setView('shop')}
                    className="w-full py-3 bg-zinc-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-zinc-700 transition-colors"
                 >
@@ -812,7 +822,7 @@ export function UI() {
               <div className="text-center">
                 <h2 className="text-5xl font-black text-white italic tracking-tighter mb-2">GAME OVER</h2>
                 <div className="text-red-400 font-bold tracking-widest text-sm uppercase">
-                  Killed by <span className="text-white">{lastDeathStats.killerName || 'Unknown'}</span>
+                  {lastDeathStats.killerName === 'The Wall' ? 'You hit the wall!' : `Killed by ${lastDeathStats.killerName || 'Unknown'}`}
                 </div>
               </div>
 
@@ -828,19 +838,21 @@ export function UI() {
               </div>
 
               <div className="w-full flex flex-col gap-3">
-                <motion.button
-                  onClick={joinGame}
-                  whileHover={{ scale: 1.05, boxShadow: '0 0 30px rgba(255,255,255,0.4)' }}
-                  whileTap={{ scale: 0.95 }}
-                  className="w-full py-5 bg-white text-black font-black text-2xl rounded-2xl transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)] flex items-center justify-center gap-3"
-                >
-                  RESPAWN
-                </motion.button>
+                {lastDeathStats.killerName !== 'The Wall' && (
+                  <motion.button
+                    onClick={joinGame}
+                    whileHover={{ scale: 1.05, boxShadow: '0 0 30px rgba(255,255,255,0.4)' }}
+                    whileTap={{ scale: 0.95 }}
+                    className="w-full py-5 bg-white text-black font-black text-2xl rounded-2xl transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)] flex items-center justify-center gap-3"
+                  >
+                    RESPAWN
+                  </motion.button>
+                )}
                 <motion.button
                   onClick={() => useGameStore.setState({ isDead: false, lastDeathStats: null })}
                   whileHover={{ scale: 1.05, backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
                   whileTap={{ scale: 0.95 }}
-                  className="w-full py-4 bg-zinc-800 text-white font-bold rounded-2xl transition-all hover:bg-zinc-700"
+                  className={`w-full py-4 font-bold rounded-2xl transition-all ${lastDeathStats.killerName === 'The Wall' ? 'bg-white text-black' : 'bg-zinc-800 text-white hover:bg-zinc-700'}`}
                 >
                   RETURN TO LOBBY
                 </motion.button>
@@ -916,15 +928,29 @@ export function UI() {
                   >
                     {isDead ? 'RESPAWN' : 'PLAY'}
                   </motion.button>
-                  <motion.button
-                    onClick={() => setView('shop')}
-                    whileHover={{ scale: 1.05, backgroundColor: 'rgb(63, 63, 70)' }}
-                    whileTap={{ scale: 0.95 }}
-                    className="w-full py-4 bg-zinc-800 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-3"
-                  >
-                    <ShoppingBag size={20} />
-                    <span>SKIN SHOP</span>
-                  </motion.button>
+                  <div className="grid grid-cols-2 gap-3">
+                    <motion.button
+                      onClick={() => setView('shop')}
+                      whileHover={{ scale: 1.05, backgroundColor: 'rgb(63, 63, 70)' }}
+                      whileTap={{ scale: 0.95 }}
+                      className="w-full py-4 bg-zinc-800 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-3"
+                    >
+                      <ShoppingBag size={20} />
+                      <span>SHOP</span>
+                    </motion.button>
+                    <motion.button
+                      onClick={() => {
+                        navigator.clipboard.writeText(window.location.href);
+                        useGameStore.getState().addNotification('Invite link copied!');
+                      }}
+                      whileHover={{ scale: 1.05, backgroundColor: 'rgba(59, 130, 246, 0.2)' }}
+                      whileTap={{ scale: 0.95 }}
+                      className="w-full py-4 bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold rounded-2xl transition-all flex items-center justify-center gap-3"
+                    >
+                      <Share2 size={20} />
+                      <span>INVITE</span>
+                    </motion.button>
+                  </div>
                 </div>
 
                 <div className="text-center text-white/40 text-[10px] uppercase tracking-[0.2em]">

@@ -124,21 +124,45 @@ function RedCap() {
 function RealSnakeHead() {
   return (
     <group position={[0, 0, 0]} rotation={[0, 0, 0]}>
-      {/* Eyes */}
-      <mesh position={[0.3, 0.5, 0.3]}>
-        <sphereGeometry args={[0.15, 8, 8]} />
-        <meshStandardMaterial color="#000000" emissive="#ccff00" emissiveIntensity={1} />
+      {/* Head Boxier shape for snout */}
+      <mesh position={[0, 0.3, 0.2]} rotation={[0.2, 0, 0]}>
+        <boxGeometry args={[0.8, 0.4, 0.6]} />
+        <meshStandardMaterial color="#2d5a27" roughness={0.5} />
       </mesh>
-      <mesh position={[-0.3, 0.5, 0.3]}>
-        <sphereGeometry args={[0.15, 8, 8]} />
-        <meshStandardMaterial color="#000000" emissive="#ccff00" emissiveIntensity={1} />
+      {/* Eyes */}
+      <mesh position={[0.25, 0.5, 0.3]}>
+        <sphereGeometry args={[0.18, 8, 8]} />
+        <meshStandardMaterial color="#000000" emissive="#ccff00" emissiveIntensity={2} />
+      </mesh>
+      <mesh position={[-0.25, 0.5, 0.3]}>
+        <sphereGeometry args={[0.18, 8, 8]} />
+        <meshStandardMaterial color="#000000" emissive="#ccff00" emissiveIntensity={2} />
+      </mesh>
+      {/* Nostrils */}
+      <mesh position={[0.1, 0.45, 0.5]}>
+        <sphereGeometry args={[0.04, 4, 4]} />
+        <meshStandardMaterial color="#000000" />
+      </mesh>
+      <mesh position={[-0.1, 0.45, 0.5]}>
+        <sphereGeometry args={[0.04, 4, 4]} />
+        <meshStandardMaterial color="#000000" />
       </mesh>
       {/* Tongue */}
-      <Float speed={5} rotationIntensity={0.2} floatIntensity={0.5}>
-        <mesh position={[0, 0.8, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <boxGeometry args={[0.1, 0.5, 0.02]} />
-          <meshStandardMaterial color="#ff4d4d" />
-        </mesh>
+      <Float speed={8} rotationIntensity={0.5} floatIntensity={0.8}>
+        <group position={[0, 0.5, 0.5]}>
+          <mesh rotation={[Math.PI / 2, 0, 0]}>
+            <boxGeometry args={[0.08, 0.6, 0.02]} />
+            <meshStandardMaterial color="#ff4d4d" />
+          </mesh>
+          <mesh position={[0.05, 0, 0.3]} rotation={[Math.PI / 2, 0, 0.5]}>
+            <boxGeometry args={[0.08, 0.3, 0.02]} />
+            <meshStandardMaterial color="#ff4d4d" />
+          </mesh>
+          <mesh position={[-0.05, 0, 0.3]} rotation={[Math.PI / 2, 0, -0.5]}>
+            <boxGeometry args={[0.08, 0.3, 0.02]} />
+            <meshStandardMaterial color="#ff4d4d" />
+          </mesh>
+        </group>
       </Float>
     </group>
   );
@@ -256,7 +280,10 @@ function Snake({ playerId, color, skinId, isLocal, localSegments }: { playerId: 
         }
       } else {
         dummy.position.set(curr.x, curr.y, 0.5);
-        dummy.scale.setScalar(isAdmin ? 1.2 : 1);
+        // Tapering tail for 3D look
+        const baseScale = isAdmin ? 1.2 : 1;
+        const taperScale = 1 - (i / count) * 0.5; // Taper to 50% at tail
+        dummy.scale.setScalar(baseScale * taperScale);
         dummy.updateMatrix();
         bodyRef.current.setMatrixAt(i - 1, dummy.matrix);
 
@@ -530,12 +557,12 @@ export function GameScene() {
       head.x += Math.cos(localPlayerRef.current.currentAngle) * speed * delta;
       head.y += Math.sin(localPlayerRef.current.currentAngle) * speed * delta;
 
-      // Boundary check
+      // Boundary check - Wall hit kills
       const boundary = WORLD_SIZE / 2;
-      if (head.x < -boundary) head.x = -boundary;
-      if (head.x > boundary) head.x = boundary;
-      if (head.y < -boundary) head.y = -boundary;
-      if (head.y > boundary) head.y = boundary;
+      let hitWall = false;
+      if (head.x < -boundary || head.x > boundary || head.y < -boundary || head.y > boundary) {
+        hitWall = true;
+      }
 
       localPlayerRef.current.segments.unshift(head);
 
@@ -582,20 +609,29 @@ export function GameScene() {
       // Check player collisions
       let collided = false;
       let killedBy = '';
-      for (const otherId in gs.players) {
-        if (otherId === playerId) continue;
-        const other = gs.players[otherId];
-        if (other.state !== 'alive') continue;
-        for (const seg of other.segments) {
-          const dx = head.x - seg.x;
-          const dy = head.y - seg.y;
-          if (dx * dx + dy * dy < 2.25) {
-            collided = true;
-            killedBy = otherId;
-            break;
+      
+      if (hitWall) {
+        collided = true;
+        killedBy = 'the wall';
+      } else {
+        for (const otherId in gs.players) {
+          if (otherId === playerId) continue;
+          const other = gs.players[otherId];
+          if (other.state !== 'alive') continue;
+          for (let i = 0; i < other.segments.length; i++) {
+            const seg = other.segments[i];
+            const dx = head.x - seg.x;
+            const dy = head.y - seg.y;
+            // Slightly larger collision radius for head-to-head for mutual destruction
+            const collisionDist = i === 0 ? 3.0 : 2.25; 
+            if (dx * dx + dy * dy < collisionDist) {
+              collided = true;
+              killedBy = otherId;
+              break;
+            }
           }
+          if (collided) break;
         }
-        if (collided) break;
       }
 
       if (collided) {
