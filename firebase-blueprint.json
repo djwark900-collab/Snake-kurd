@@ -1,0 +1,60 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Stores user statistics, balance, and owned skins.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "email": { "type": "string" },
+        "money": { "type": "integer" },
+        "ownedSkins": { "type": "array", "items": { "type": "string" } },
+        "currentSkin": { "type": "string" },
+        "highScore": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "money", "ownedSkins", "currentSkin"]
+    },
+    "Score": {
+      "title": "Score Entry",
+      "description": "A record of a high score achieved by a user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "score": { "type": "integer" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "score", "timestamp"]
+    },
+    "Skin": {
+      "title": "Custom Skin",
+      "description": "Custom skin created by admin.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "price": { "type": "integer" },
+        "type": { "type": "string", "enum": ["color", "pattern"] },
+        "value": { "type": "string" }
+      },
+      "required": ["name", "price", "type", "value"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profile document"
+    },
+    "scores/{scoreId}": {
+      "schema": "Score",
+      "description": "Global high scores"
+    },
+    "skins/{skinId}": {
+      "schema": "Skin",
+      "description": "Custom snake skins"
+    }
+  }
+}
