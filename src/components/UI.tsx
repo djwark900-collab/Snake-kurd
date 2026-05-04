@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import { useGameStore, SKINS } from '../store/gameStore';
+import { useGameStore, SKINS, RP_REWARDS, getRPForLevel, getLevelFromRP, RP_PER_LEVEL } from '../store/gameStore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, ShoppingBag, LogIn, LogOut, User, DollarSign, ChevronLeft, Check, Mail, Lock, UserPlus, Trash2, Settings, Share2 } from 'lucide-react';
-import { useState } from 'react';
+import { Trophy, ShoppingBag, LogIn, LogOut, User, DollarSign, ChevronLeft, Check, Mail, Lock, UserPlus, Trash2, Settings, Share2, Star, Zap, Gift, Skull } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
 import { GameState, WORLD_SIZE } from '../shared/types';
 
 function Minimap({ gameState, currentPlayerId }: { gameState: GameState | null, currentPlayerId: string | null }) {
@@ -61,14 +61,17 @@ export function UI() {
   const addCustomSkin = useGameStore(state => state.addCustomSkin);
   const deleteCustomSkin = useGameStore(state => state.deleteCustomSkin);
   const customSkins = useGameStore(state => state.customSkins);
+  const claimReward = useGameStore(state => state.claimReward);
   const notifications = useGameStore(state => state.notifications);
   const mobileInputs = useGameStore(state => state.mobileInputs);
   const setMobileInput = useGameStore(state => state.setMobileInput);
   const setJoystickAngle = useGameStore(state => state.setJoystickAngle);
   const leaderboardRange = useGameStore(state => state.leaderboardRange);
   const globalLeaderboard = useGameStore(state => state.globalLeaderboard);
+  const dailyLeaderboard = useGameStore(state => state.dailyLeaderboard);
+  const nextResetAt = useGameStore(state => state.nextResetAt);
   const setLeaderboardRange = useGameStore(state => state.setLeaderboardRange);
-  const [view, setView] = useState<'lobby' | 'shop' | 'leaderboard'>('lobby');
+  const [view, setView] = useState<'lobby' | 'shop' | 'leaderboard' | 'rankpass'>('lobby');
   const [showHUDLeaderboard, setShowHUDLeaderboard] = useState(true);
   const [showMinimap, setShowMinimap] = useState(true);
   const [joystickStart, setJoystickStart] = useState<{ x: number, y: number } | null>(null);
@@ -108,6 +111,28 @@ export function UI() {
     setJoystickAngle(null);
   };
 
+  const [deathTimer, setDeathTimer] = useState(3);
+
+  useEffect(() => {
+    let interval: any;
+    if (isDead) {
+      setDeathTimer(3);
+      interval = setInterval(() => {
+        setDeathTimer(prev => {
+          if (prev <= 1) {
+            if (isDead) {
+              useGameStore.setState({ isDead: false, lastDeathStats: null });
+              setView('lobby');
+            }
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isDead]);
+
   const player = playerId && gameState ? gameState.players[playerId] : null;
   const isAlive = player?.state === 'alive';
 
@@ -122,10 +147,16 @@ export function UI() {
   const [isUploading, setIsUploading] = useState(false);
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
-  const [adminSkinForm, setAdminSkinForm] = useState({ name: '', price: '100', value: '', type: 'color' as 'color' | 'pattern' });
+  const [adminSkinForm, setAdminSkinForm] = useState({ name: '', price: '100', value: '', type: 'color' as 'color' | 'pattern', isEvent: false });
   const [adminError, setAdminError] = useState('');
   const [adminMoneyInput, setAdminMoneyInput] = useState('0');
   
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const signUpWithEmail = useGameStore(state => state.signUpWithEmail);
   const signInWithEmail = useGameStore(state => state.signInWithEmail);
   const updateAvatar = useGameStore(state => state.updateAvatar);
@@ -398,19 +429,47 @@ export function UI() {
                     <DollarSign size={14} className="text-yellow-400" />
                     <span className="text-sm font-bold text-white font-mono">{profile.money}</span>
                   </div>
+                  {!isAlive && (
+                    <div className="bg-zinc-800/80 backdrop-blur-sm border border-white/10 px-3 py-1 rounded-full flex items-center gap-2 cursor-pointer hover:bg-zinc-700/80 transition-all" onClick={() => setView('rankpass')}>
+                      <Zap size={14} className="text-yellow-400 fill-yellow-400" />
+                      <span className="text-sm font-bold text-white font-mono">LVL {getLevelFromRP(profile.rp)}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
             {isAlive && (
               <div className="flex flex-col">
-                <div className="text-xl font-mono text-white/80 font-bold">
-                  Length: {Math.floor(player.score)}
+                <div className="text-xl font-mono text-white/80 font-bold flex items-center gap-2">
+                  <span className="text-white/40 text-xs font-black uppercase">Length:</span>
+                  {Math.floor(player.score)}
                 </div>
+                <div className="text-sm font-mono text-red-400/80 font-bold flex items-center gap-2">
+                  <Skull size={12} />
+                  <span className="text-white/40 text-[10px] font-black uppercase">Kills:</span>
+                  {player.kills || 0}
+                </div>
+                {dailyLeaderboard?.[0] && (
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <div className="px-1.5 py-0.5 bg-blue-500/20 border border-blue-500/30 rounded text-[9px] font-black text-blue-400 uppercase tracking-tighter">Daily Top</div>
+                    <span className="text-[10px] font-bold text-white/60 truncate max-w-[100px]">{dailyLeaderboard[0].name}</span>
+                    <span className="text-[10px] font-mono text-yellow-400/80">{dailyLeaderboard[0].score}</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
           
           <div className="flex items-center gap-2 pointer-events-auto">
+            <motion.button
+              onClick={() => setView('rankpass')}
+              whileHover={{ scale: 1.1, backgroundColor: 'rgba(59, 130, 246, 0.2)', color: 'rgb(59, 130, 246)' }}
+              whileTap={{ scale: 0.9 }}
+              className={`p-2 bg-white/10 backdrop-blur-md rounded-full text-white transition-colors ${view === 'rankpass' ? 'bg-blue-500/30 text-blue-400' : ''}`}
+              title="Rank Pass"
+            >
+              <Zap size={16} />
+            </motion.button>
             <motion.button
               onClick={() => setView('leaderboard')}
               whileHover={{ scale: 1.1, backgroundColor: 'rgba(234, 179, 8, 0.2)', color: 'rgb(253, 224, 71)' }}
@@ -507,7 +566,17 @@ export function UI() {
             className="absolute top-20 right-4 w-72 bg-zinc-900/95 backdrop-blur-xl border border-white/10 p-6 rounded-3xl shadow-2xl z-[150] pointer-events-auto"
           >
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-black text-white italic tracking-tighter">SETTINGS</h3>
+              <div className="flex items-center gap-2">
+                <motion.button 
+                  onClick={() => setShowSettings(false)}
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  className="text-white/40 hover:text-white transition-colors"
+                >
+                  <ChevronLeft size={20} />
+                </motion.button>
+                <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">SETTINGS</h3>
+              </div>
               <Settings size={20} className="text-blue-500 animate-spin-slow" />
             </div>
 
@@ -709,6 +778,13 @@ export function UI() {
                     />
                   </div>
 
+                  <div className="flex items-center gap-3 bg-black/20 p-3 rounded-lg border border-white/5 cursor-pointer" onClick={() => setAdminSkinForm({...adminSkinForm, isEvent: !adminSkinForm.isEvent})}>
+                    <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${adminSkinForm.isEvent ? 'bg-blue-500 border-blue-400' : 'border-white/20'}`}>
+                      {adminSkinForm.isEvent && <div className="w-2 h-2 bg-white rounded-full" />}
+                    </div>
+                    <span className="text-[10px] font-bold text-white/60 uppercase">Mark as Special EVent Skin</span>
+                  </div>
+
                   <motion.button
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
@@ -718,9 +794,10 @@ export function UI() {
                         name: adminSkinForm.name,
                         price: parseInt(adminSkinForm.price),
                         type: adminSkinForm.type,
-                        value: adminSkinForm.value
+                        value: adminSkinForm.value,
+                        isEvent: adminSkinForm.isEvent
                       });
-                      setAdminSkinForm({ name: '', price: '100', value: '', type: 'color' });
+                      setAdminSkinForm({ name: '', price: '100', value: '', type: 'color', isEvent: false });
                     }}
                     className="w-full py-4 bg-white text-black font-black rounded-xl text-sm shadow-xl"
                   >
@@ -810,12 +887,17 @@ export function UI() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black/80 backdrop-blur-md z-[200]"
+            onClick={() => {
+              useGameStore.setState({ isDead: false, lastDeathStats: null });
+              setView('lobby');
+            }}
+            className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black/80 backdrop-blur-md z-[200] cursor-pointer"
           >
             <motion.div
               initial={{ scale: 0.8, y: 20 }}
               animate={{ scale: 1, y: 0 }}
-              className="bg-zinc-900 border border-white/20 p-10 rounded-[2.5rem] shadow-2xl max-w-md w-full flex flex-col items-center gap-8 relative overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+              className="bg-zinc-900 border border-white/20 p-10 rounded-[2.5rem] shadow-2xl max-w-md w-full flex flex-col items-center gap-8 relative overflow-hidden cursor-default"
             >
               <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-500 via-orange-500 to-red-500 animate-pulse" />
               
@@ -832,30 +914,45 @@ export function UI() {
                   <span className="text-3xl font-black text-white font-mono">{lastDeathStats.score}</span>
                 </div>
                 <div className="bg-white/5 border border-white/10 p-4 rounded-2xl flex flex-col items-center">
-                  <span className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-1">High Score</span>
-                  <span className="text-3xl font-black text-blue-400 font-mono">{profile?.highScore || lastDeathStats.score}</span>
+                  <span className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-1 flex items-center gap-1">
+                    <Skull size={10} className="text-red-500" />
+                    Kills
+                  </span>
+                  <span className="text-3xl font-black text-red-500 font-mono">{lastDeathStats.kills || 0}</span>
                 </div>
               </div>
 
               <div className="w-full flex flex-col gap-3">
-                {lastDeathStats.killerName !== 'The Wall' && (
-                  <motion.button
-                    onClick={joinGame}
-                    whileHover={{ scale: 1.05, boxShadow: '0 0 30px rgba(255,255,255,0.4)' }}
-                    whileTap={{ scale: 0.95 }}
-                    className="w-full py-5 bg-white text-black font-black text-2xl rounded-2xl transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)] flex items-center justify-center gap-3"
-                  >
-                    RESPAWN
-                  </motion.button>
-                )}
                 <motion.button
-                  onClick={() => useGameStore.setState({ isDead: false, lastDeathStats: null })}
-                  whileHover={{ scale: 1.05, backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
+                  onClick={() => {
+                    useGameStore.setState({ isDead: false, lastDeathStats: null });
+                    joinGame();
+                  }}
+                  whileHover={{ scale: 1.05, boxShadow: '0 0 30px rgba(59, 130, 246, 0.5)' }}
                   whileTap={{ scale: 0.95 }}
-                  className={`w-full py-4 font-bold rounded-2xl transition-all ${lastDeathStats.killerName === 'The Wall' ? 'bg-white text-black' : 'bg-zinc-800 text-white hover:bg-zinc-700'}`}
+                  className="w-full py-5 bg-blue-600 text-white font-black text-3xl rounded-2xl transition-all shadow-[0_0_20px_rgba(59,130,246,0.3)] italic tracking-tighter"
                 >
-                  RETURN TO LOBBY
+                  RESPAWN NOW
                 </motion.button>
+                <div className="relative w-full">
+                  <motion.button
+                    onClick={() => {
+                      useGameStore.setState({ isDead: false, lastDeathStats: null });
+                      setView('lobby');
+                    }}
+                    whileHover={{ scale: 1.05, backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
+                    whileTap={{ scale: 0.95 }}
+                    className="w-full py-4 bg-white/5 text-white/60 font-black text-sm rounded-2xl transition-all border border-white/10"
+                  >
+                    BACK TO LOBBY ({deathTimer}s)
+                  </motion.button>
+                  <motion.div 
+                    initial={{ width: '100%' }}
+                    animate={{ width: '0%' }}
+                    transition={{ duration: 3, ease: 'linear' }}
+                    className="absolute bottom-0 left-0 h-0.5 bg-white/20 rounded-full"
+                  />
+                </div>
               </div>
 
               <div className="flex items-center gap-2 bg-yellow-400/10 border border-yellow-400/20 px-4 py-2 rounded-full">
@@ -874,7 +971,7 @@ export function UI() {
             exit={{ opacity: 0 }}
             className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black/60 backdrop-blur-sm z-[100]"
           >
-            {view === 'lobby' ? (
+            {view === 'lobby' && (
               <div className="bg-zinc-900/90 p-8 rounded-3xl border border-white/10 shadow-2xl max-w-md w-full flex flex-col items-center gap-8 relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500" />
                 
@@ -912,14 +1009,41 @@ export function UI() {
                     <div className="w-px h-6 bg-white/10" />
                     <div className="text-white/40 text-xs flex flex-col items-center">
                       <span className="font-bold text-white/60">SKIN</span>
-                      <span className="font-bold text-white/80 uppercase truncate max-w-[100px]">
-                        {SKINS.find(s => s.id === profile?.currentSkin)?.name || 'Default'}
-                      </span>
+                      <div className="flex items-center gap-1 group/inventory cursor-pointer" onClick={() => setView('shop')}>
+                        <span className="font-bold text-white/80 uppercase truncate max-w-[100px]">
+                          {SKINS.find(s => s.id === profile?.currentSkin)?.name || 'Default'}
+                        </span>
+                        <ShoppingBag size={12} className="text-blue-400 group-hover/inventory:scale-125 transition-transform" />
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="w-full flex flex-col gap-3">
+                  <div className="w-full flex flex-col gap-3">
+                    <motion.button
+                      onClick={() => setShowSettings(true)}
+                      whileHover={{ scale: 1.05, backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
+                      whileTap={{ scale: 0.95 }}
+                      className="w-full py-3 bg-white/5 text-white/60 border border-white/10 font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+                    >
+                      <Settings size={14} />
+                      <span className="text-[10px] uppercase tracking-widest">Settings</span>
+                    </motion.button>
+                    <motion.button
+                      onClick={() => {
+                        setLeaderboardRange('daily');
+                        setView('leaderboard');
+                      }}
+                      whileHover={{ scale: 1.05, backgroundColor: 'rgba(234, 179, 8, 0.2)' }}
+                      whileTap={{ scale: 0.95 }}
+                    className="w-full py-2.5 bg-yellow-400/10 text-yellow-400 border border-yellow-400/20 font-bold rounded-xl transition-all flex items-center justify-center gap-3"
+                  >
+                    <Trophy size={16} />
+                    <div className="flex flex-col items-start leading-tight">
+                      <span className="text-xs">DAILY RANKINGS</span>
+                      <span className="text-[9px] text-yellow-500/40 uppercase">Top Players</span>
+                    </div>
+                  </motion.button>
                   <motion.button
                     onClick={joinGame}
                     whileHover={{ scale: 1.05, boxShadow: '0 0 25px rgba(255,255,255,0.4)' }}
@@ -933,45 +1057,51 @@ export function UI() {
                       onClick={() => setView('shop')}
                       whileHover={{ scale: 1.05, backgroundColor: 'rgb(63, 63, 70)' }}
                       whileTap={{ scale: 0.95 }}
-                      className="w-full py-4 bg-zinc-800 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-3"
+                      className="w-full py-4 bg-zinc-800 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-3 relative overflow-hidden"
                     >
                       <ShoppingBag size={20} />
-                      <span>SHOP</span>
+                      <div className="flex flex-col items-start leading-tight">
+                        <span className="text-sm">SHOP</span>
+                        <span className="text-[10px] text-white/40 uppercase">Skin Store</span>
+                      </div>
                     </motion.button>
                     <motion.button
-                      onClick={() => {
-                        navigator.clipboard.writeText(window.location.href);
-                        useGameStore.getState().addNotification('Invite link copied!');
-                      }}
+                      onClick={() => setView('rankpass')}
                       whileHover={{ scale: 1.05, backgroundColor: 'rgba(59, 130, 246, 0.2)' }}
                       whileTap={{ scale: 0.95 }}
                       className="w-full py-4 bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold rounded-2xl transition-all flex items-center justify-center gap-3"
                     >
-                      <Share2 size={20} />
-                      <span>INVITE</span>
+                      <Zap size={20} />
+                      <div className="flex flex-col items-start leading-tight">
+                        <span className="text-sm">PASS</span>
+                        <span className="text-[10px] text-blue-500/40 uppercase">Rank Rewards</span>
+                      </div>
                     </motion.button>
                   </div>
                 </div>
 
-                <div className="text-center text-white/40 text-[10px] uppercase tracking-[0.2em]">
+                <div className="text-center text-white/40 text-[10px] uppercase tracking-[0.2em] mb-4">
                   Real-time multiplayer arena
                 </div>
 
-                {/* Admin Access Trigger */}
                 <button 
                   onClick={() => setShowAdminLogin(true)}
-                  className="mt-4 text-[9px] text-white/5 hover:text-white/20 transition-colors uppercase tracking-widest font-black"
+                  className="text-[9px] text-white/5 hover:text-white/20 transition-colors uppercase tracking-widest font-black"
                 >
                   Admin Access
                 </button>
               </div>
-            ) : view === 'leaderboard' ? (
+            )}
+
+            {(view === 'shop' || view === 'leaderboard' || view === 'rankpass') && (
               <motion.div 
+                key={`overlay-${view}`}
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className="bg-zinc-900/90 p-8 rounded-3xl border border-white/10 shadow-2xl max-w-2xl w-full flex flex-col"
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-zinc-900/90 p-8 rounded-3xl border border-white/10 shadow-2xl max-w-4xl w-full flex flex-col max-h-[85vh] overflow-hidden"
               >
-                <div className="flex justify-between items-center mb-8">
+                <div className="flex justify-between items-center mb-8 shrink-0">
                   <motion.button 
                     onClick={() => setView('lobby')}
                     whileHover={{ scale: 1.2, backgroundColor: 'rgba(255,255,255,0.1)' }}
@@ -980,233 +1110,288 @@ export function UI() {
                   >
                     <ChevronLeft size={24} />
                   </motion.button>
-                  <h2 className="text-3xl font-black text-white italic tracking-tighter">GLOBAL RANKINGS</h2>
-                  <Trophy size={24} className="text-yellow-400" />
+                  <div className="text-center">
+                    <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase whitespace-nowrap">
+                      {view === 'shop' ? 'Neon Shop' : view === 'rankpass' ? 'Rank Pass' : 'Daily Rankings'}
+                    </h2>
+                    {view === 'rankpass' && <span className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em]">SEASON 1</span>}
+                  </div>
+                  {view === 'shop' ? <DollarSign size={24} className="text-yellow-400" /> : view === 'rankpass' ? <Zap size={24} className="text-yellow-400 fill-yellow-400" /> : <Trophy size={24} className="text-yellow-400" />}
                 </div>
 
-                <div className="flex bg-black/60 p-1.5 rounded-xl border border-white/10 mb-6 gap-2">
-                  {(['live', 'daily', 'weekly', 'all-time'] as const).map((range, i) => (
-                    <button
-                      key={`range-btn-${range}-${i}`}
-                      onClick={() => setLeaderboardRange(range)}
-                      className={`flex-1 py-3 rounded-lg text-xs font-black uppercase transition-all ${
-                        leaderboardRange === range 
-                        ? 'bg-white text-black shadow-[0_0_20px_rgba(255,255,255,0.2)]' 
-                        : 'text-white/40 hover:text-white hover:bg-white/5'
-                      }`}
-                    >
-                      {range}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="overflow-y-auto pr-2 custom-scrollbar max-h-[50vh] flex flex-col gap-2">
-                  {(leaderboardRange === 'live' ? gameState?.leaderboard : globalLeaderboard)?.map((entry, i) => (
-                    <motion.div 
-                      key={`leaderboard-entry-${leaderboardRange}-${entry.id || entry.uid || i}-${i}`}
-                      initial={{ x: -20, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
-                        entry.uid === user.uid ? 'bg-white/10 border-white/40' : 'bg-black/40 border-white/5'
-                      }`}
-                    >
-                      <div className="flex items-center gap-4">
-                        <span className={`text-xl font-black italic w-8 ${i < 3 ? 'text-yellow-400' : 'text-white/20'}`}>
-                          #{i + 1}
-                        </span>
-                        <div className="flex flex-col">
-                          <span className="text-white font-bold text-lg">{entry.name}</span>
-                          <span className="text-white/20 text-[10px] font-mono leading-none lowercase">{entry.uid === user.uid ? 'YOU' : 'SNAKE ACCOUNT'}</span>
+                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                  {view === 'leaderboard' && (
+                    <div className="flex flex-col gap-4">
+                      {leaderboardRange === 'daily' && (
+                        <div className="flex items-center justify-between px-4 py-3 bg-blue-500/10 border border-blue-500/20 rounded-xl mb-4">
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest leading-none mb-1">Time Remaining</span>
+                            <div className="text-xl font-mono text-white font-black leading-none animate-pulse">
+                              {nextResetAt ? (() => {
+                                const diff = Math.max(0, nextResetAt - now);
+                                const h = Math.floor(diff / 3600000);
+                                const m = Math.floor((diff % 3600000) / 60000);
+                                const s = Math.floor((diff % 60000) / 1000);
+                                return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                              })() : '--:--:--'}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                             <span className="text-[10px] font-black text-yellow-400 uppercase tracking-widest leading-none block mb-1">Daily Prizes</span>
+                             <span className="text-xs font-bold text-white/60">#1: $250 | #2: $150 | #3: $50</span>
+                          </div>
                         </div>
+                      )}
+
+                      <div className="flex flex-col gap-2">
+                        {(leaderboardRange === 'live' ? gameState?.leaderboard : (leaderboardRange === 'daily' ? dailyLeaderboard : globalLeaderboard))?.map((entry, i) => (
+                          <motion.div 
+                            key={`leaderboard-entry-${leaderboardRange}-${entry.id || entry.uid || i}-${i}`}
+                            initial={{ x: -20, opacity: 0 }}
+                            animate={{ x: 0, opacity: 1 }}
+                            className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
+                              entry.uid === user.uid ? 'bg-white/10 border-white/40' : 'bg-black/40 border-white/5'
+                            }`}
+                          >
+                            <div className="flex items-center gap-4">
+                              <span className={`text-xl font-black italic w-8 ${i < 3 ? 'text-yellow-400' : 'text-white/20'}`}>
+                                #{i + 1}
+                              </span>
+                              <div className="flex flex-col">
+                                <span className="text-white font-bold text-lg">{entry.name}</span>
+                                <span className="text-white/20 text-[10px] font-mono leading-none lowercase">{entry.uid === user.uid ? 'YOU' : 'SNAKE ACCOUNT'}</span>
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end">
+                              <span className="text-2xl font-black text-white font-mono">{entry.score}</span>
+                              <span className="text-white/20 text-[10px] font-bold tracking-[0.2em]">SCORE</span>
+                            </div>
+                          </motion.div>
+                        ))}
                       </div>
-                      <div className="flex flex-col items-end">
-                        <span className="text-2xl font-black text-white font-mono">{entry.score}</span>
-                        <span className="text-white/20 text-[10px] font-bold tracking-[0.2em]">SCORE</span>
-                      </div>
-                    </motion.div>
-                  ))}
-                  {((leaderboardRange === 'live' ? gameState?.leaderboard : globalLeaderboard)?.length === 0) && (
-                    <div className="text-center py-12 text-white/20 font-bold italic tracking-wider">
-                      NO DATA RECORDED YET
                     </div>
                   )}
-                </div>
-              </motion.div>
-            ) : (
-              <motion.div 
-                initial={{ x: 100, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                className="bg-zinc-900/90 p-6 rounded-3xl border border-white/10 shadow-2xl max-w-4xl w-full max-h-[80vh] flex flex-col"
-              >
-                <div className="flex justify-between items-center mb-6">
-                  <motion.button 
-                    onClick={() => setView('lobby')}
-                    whileHover={{ scale: 1.2, backgroundColor: 'rgba(255,255,255,0.1)' }}
-                    whileTap={{ scale: 0.8 }}
-                    className="p-2 bg-white/5 rounded-full text-white transition-colors"
-                  >
-                    <ChevronLeft size={24} />
-                  </motion.button>
-                  <h2 className="text-2xl font-black text-white italic">SKIN SHOP</h2>
-                  <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-full border border-white/10">
-                    <DollarSign size={16} className="text-yellow-400" />
-                    <span className="font-mono font-bold text-white">{profile?.money}</span>
-                  </div>
-                </div>
 
-                <div className="overflow-y-auto pr-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 pb-4">
-                  {[...SKINS, ...customSkins].map((skin, i) => {
-                    const isOwned = profile?.ownedSkins.includes(skin.id);
-                    const isEquipped = profile?.currentSkin === skin.id;
-                    const canAfford = (profile?.money || 0) >= skin.price;
+                  {view === 'shop' && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 pb-4">
+                      <div className="col-span-full flex items-center justify-between bg-black/40 p-4 rounded-2xl border border-white/5 mb-2">
+                         <div className="flex flex-col">
+                            <span className="text-[10px] font-black text-white/40 uppercase">Your Balance</span>
+                            <span className="text-2xl font-mono font-bold text-yellow-400">${profile?.money}</span>
+                         </div>
+                         <ShoppingBag size={32} className="text-white/10" />
+                      </div>
+                      {[...SKINS, ...customSkins].map((skin, i) => {
+                        const isOwned = profile?.ownedSkins.includes(skin.id);
+                        const isEquipped = profile?.currentSkin === skin.id;
+                        const canAfford = (profile?.money || 0) >= skin.price;
 
-                    return (
-                      <motion.div 
-                        key={`shop-item-${skin.id}-${i}`}
-                        layout
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={isEquipped ? { 
-                          opacity: 1, 
-                          scale: 1,
-                          boxShadow: [
-                            '0 0 0px rgba(255,255,255,0)', 
-                            '0 0 20px rgba(255,255,255,0.2)', 
-                            '0 0 0px rgba(255,255,255,0)'
-                          ]
-                        } : { opacity: 1, scale: 1 }}
-                        transition={isEquipped ? {
-                          boxShadow: {
-                            duration: 2,
-                            repeat: Infinity,
-                            ease: "easeInOut"
-                          }
-                        } : {}}
-                        whileHover={{ y: -5, boxShadow: '0 10px 30px -10px rgba(0,0,0,0.5)' }}
-                        className={`p-4 rounded-2xl border transition-all flex flex-col items-center gap-3 ${
-                          isEquipped ? 'bg-white/10 border-white/60 ring-1 ring-white/20' : 'bg-black/40 border-white/10'
-                        }`}
-                      >
-                        {/* Preview */}
-                        <div className="w-full aspect-square rounded-xl flex items-center justify-center relative overflow-hidden bg-zinc-800">
-                          {skin.id === 'admin-neon' ? (
-                            <div className="w-full h-full bg-black flex items-center justify-center relative overflow-hidden">
-                               <div className="absolute inset-0 bg-cyan-400 opacity-20 blur-xl animate-pulse" />
-                               <div className="w-10 h-10 rounded-full bg-cyan-400 shadow-[0_0_20px_#22d3ee]" />
-                               <div className="absolute top-2 w-8 h-8 rounded-full border-2 border-fuchsia-500 shadow-[0_0_10px_#d946ef]" />
-                            </div>
-                          ) : skin.id === 'kurdistan' ? (
-                             <div className="flex flex-col w-full h-full rotate-45 scale-150">
-                               <div className="h-1/3 bg-[#ED2124]" />
-                               <div className="h-1/3 bg-white flex items-center justify-center">
-                                 <div className="w-1/2 h-1/2 rounded-full bg-[#FFD700] blur-[1px]" />
-                               </div>
-                               <div className="h-1/3 bg-[#278E43]" />
-                             </div>
-                          ) : skin.id === 'realmadrid' ? (
-                            <div className="w-full h-full bg-[#f0f0f0] flex items-center justify-center relative">
-                               <div className="w-2/3 h-2/3 border-4 border-[#00529F] rounded-full flex items-center justify-center flex-col rotate-[-15deg]">
-                                 <div className="w-5/6 h-2 bg-[#00529F] rotate-45 absolute" />
-                                 <div className="text-[10px] font-black text-[#00529F] tracking-tighter">MCF</div>
-                               </div>
-                               <div className="absolute top-2 w-4 h-3 bg-yellow-400 rounded-t-full border border-yellow-600" />
-                            </div>
-                          ) : skin.id === 'usa' ? (
-                            <div className="w-full h-full flex flex-col">
-                              <div className="h-2/5 flex">
-                                <div className="w-1/2 bg-[#3C3B6E] p-1 flex flex-wrap gap-0.5 items-center justify-center">
-                                  {Array.from({ length: 9 }).map((_, i) => (
-                                    <div key={`usa-star-${i}`} className="w-0.5 h-0.5 bg-white rounded-full" />
-                                  ))}
+                        return (
+                          <motion.div 
+                            key={`shop-item-${skin.id}-${i}`}
+                            whileHover={{ y: -5 }}
+                            className={`p-4 rounded-2xl border transition-all flex flex-col items-center gap-3 relative group ${
+                              isEquipped ? 'bg-white/10 border-white/60 ring-1 ring-white/20' : 'bg-black/40 border-white/10'
+                            }`}
+                          >
+                             {isAdmin && (
+                                <button 
+                                  onClick={() => { if(confirm(`Delete ${skin.name}?`)) deleteCustomSkin(skin.id); }}
+                                  className="absolute top-2 right-2 p-1.5 bg-red-500 rounded-lg text-white opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              )}
+                            <div className="w-full aspect-square rounded-xl flex items-center justify-center relative overflow-hidden bg-zinc-800">
+                              {skin.type === 'color' ? (
+                                <div className="w-12 h-12 rounded-full shadow-lg" style={{ backgroundColor: skin.value }} />
+                              ) : skin.value.startsWith('http') ? (
+                                <img src={skin.value} alt={skin.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="text-[10px] text-white/40 uppercase font-black text-center p-2 break-all">{skin.id}</div>
+                              )}
+                              {skin.isEvent && (
+                                <div className="absolute top-2 left-2 bg-blue-500 text-white text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-tighter">
+                                  EVENT
                                 </div>
-                                <div className="w-1/2 flex flex-col">
-                                  <div className="h-1/4 bg-[#B22234]" />
-                                  <div className="h-1/4 bg-white" />
-                                  <div className="h-1/4 bg-[#B22234]" />
-                                  <div className="h-1/4 bg-white" />
-                                </div>
-                              </div>
-                              <div className="h-3/5 flex flex-col">
-                                {Array.from({ length: 6 }).map((_, i) => (
-                                  <div key={`usa-stripe-${i}`} className={`h-1/6 ${i % 2 === 0 ? 'bg-[#B22234]' : 'bg-white'}`} />
-                                ))}
-                              </div>
+                              )}
                             </div>
-                          ) : skin.id === 'skull' ? (
-                            <div className="w-full h-full bg-[#1a1a1a] flex items-center justify-center relative">
-                               <div className="w-2/3 h-2/3 bg-white rounded-t-2xl rounded-b-lg relative flex flex-col items-center">
-                                 <div className="flex gap-2 mt-4">
-                                   <div className="w-3 h-3 bg-red-600 rounded-full shadow-[0_0_8px_red]" />
-                                   <div className="w-3 h-3 bg-red-600 rounded-full shadow-[0_0_8px_red]" />
-                                 </div>
-                                 <div className="w-1/2 h-1 bg-black/20 mt-4 rounded-full" />
-                               </div>
+
+                            <div className="text-center w-full">
+                              <div className="text-white font-bold text-xs truncate mb-1">{skin.name}</div>
+                              {isEquipped ? (
+                                <div className="text-[10px] font-black text-blue-400 uppercase tracking-widest mt-2">EQUIPPED</div>
+                              ) : isOwned ? (
+                                <button onClick={() => setSkin(skin.id)} className="w-full py-1.5 bg-white text-black text-[10px] font-black rounded-lg mt-2 font-mono">EQUIP</button>
+                              ) : (
+                                <button 
+                                  onClick={() => buySkin(skin.id)}
+                                  disabled={!canAfford}
+                                  className={`w-full py-1.5 rounded-lg text-[10px] font-black mt-2 font-mono ${
+                                    canAfford ? 'bg-yellow-400 text-black' : 'bg-white/5 text-white/20'
+                                  }`}
+                                >
+                                  ${skin.price}
+                                </button>
+                              )}
                             </div>
-                          ) : skin.id === 'viking' ? (
-                            <div className="w-full h-full bg-zinc-800 flex items-center justify-center relative">
-                               <div className="w-1/2 h-1/2 bg-gray-400 rounded-t-full relative">
-                                 <div className="absolute -top-4 -left-2 w-4 h-6 bg-white rotate-[-30deg] [clip-path:polygon(50%_0%,0%_100%,100%_100%)]" />
-                                 <div className="absolute -top-4 -right-2 w-4 h-6 bg-white rotate-[30deg] [clip-path:polygon(50%_0%,0%_100%,100%_100%)]" />
-                               </div>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {view === 'rankpass' && (
+                    <div className="flex flex-col gap-6">
+                      {/* PUBG Style Rank Header */}
+                      <div className="bg-gradient-to-br from-zinc-900 to-black border border-white/10 rounded-2xl p-5 shadow-2xl relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/5 blur-3xl rounded-full -mr-16 -mt-16" />
+                        <div className="flex items-center justify-between relative z-10">
+                          <div className="flex items-center gap-4">
+                            <div className="w-14 h-14 bg-yellow-400 flex flex-col items-center justify-center rounded-xl shadow-[0_0_20px_rgba(234,179,8,0.3)]">
+                              <span className="text-[10px] font-black text-black leading-none uppercase">LVL</span>
+                              <span className="text-2xl font-black text-black leading-none mt-1 italic tracking-tighter">{getLevelFromRP(profile?.rp || 0)}</span>
                             </div>
-                          ) : skin.id === 'redcap' ? (
-                            <div className="w-full h-full bg-zinc-800 flex items-center justify-center relative">
-                               <div className="w-1/2 h-2/5 bg-red-600 rounded-t-full relative">
-                                 <div className="absolute bottom-0 -right-2 w-4 h-1 bg-red-600 rounded-full" />
-                               </div>
+                            <div className="flex flex-col">
+                              <h3 className="text-lg font-black text-white italic tracking-tighter uppercase leading-none">RANK PASS</h3>
+                              <span className="text-[10px] text-white/40 uppercase font-black mt-1">Season 1: Neon Vanguard</span>
                             </div>
-                          ) : skin.id === 'crown' ? (
-                            <div className="w-full h-full bg-[#1a1a1a] flex items-center justify-center relative">
-                               <div className="w-1/2 h-1/4 bg-yellow-500 rounded-sm relative flex justify-between items-end px-1 pb-1">
-                                 <div className="w-1 h-3 bg-yellow-500 [clip-path:polygon(50%_0%,0%_100%,100%_100%)] absolute -top-2 left-0" />
-                                 <div className="w-1 h-3 bg-yellow-500 [clip-path:polygon(50%_0%,0%_100%,100%_100%)] absolute -top-2 left-1/2 -ms-0.5" />
-                                 <div className="w-1 h-3 bg-yellow-500 [clip-path:polygon(50%_0%,0%_100%,100%_100%)] absolute -top-2 right-0" />
-                               </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="flex items-center gap-2 text-yellow-400 font-black italic">
+                              <Zap size={16} className="fill-yellow-400" />
+                              <span className="text-xl tracking-tighter">{profile?.rp || 0} RP</span>
                             </div>
-                          ) : skin.value.startsWith('http') ? (
-                            <img src={skin.value} alt={skin.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full shadow-[0_0_15px_rgba(255,255,255,0.3)] animate-pulse" style={{ backgroundColor: skin.value }} />
-                          )}
+                            <span className="text-[8px] text-white/20 uppercase font-black uppercase">Points Earned</span>
+                          </div>
                         </div>
 
-                        <div className="text-center w-full">
-                          <div className="text-white font-bold text-xs truncate mb-1">{skin.name}</div>
-                          {isEquipped ? (
-                            <button
-                              disabled
-                              className="w-full py-2 bg-green-500/20 text-green-400 rounded-lg text-[10px] font-black tracking-widest flex items-center justify-center gap-1 border border-green-500/30 cursor-default"
-                            >
-                              <Check size={12} />
-                              EQUIPPED
-                            </button>
-                          ) : isOwned ? (
-                            <motion.button
-                              whileHover={{ scale: 1.05, backgroundColor: 'rgba(255, 255, 255, 0.2)' }}
-                              whileTap={{ scale: 0.95 }}
-                              onClick={() => setSkin(skin.id)}
-                              className="w-full py-2 bg-white/10 text-white rounded-lg text-[10px] font-black transition-colors"
-                            >
-                              EQUIP
-                            </motion.button>
-                          ) : (
-                            <motion.button
-                              disabled={!canAfford}
-                              whileHover={canAfford ? { scale: 1.05 } : {}}
-                              whileTap={canAfford ? { scale: 0.95 } : {}}
-                              onClick={() => buySkin(skin.id)}
-                              className={`w-full py-2 rounded-lg text-[10px] font-black transition-all ${
-                                canAfford 
-                                  ? 'bg-yellow-400 text-black shadow-[0_0_10px_rgba(250,204,21,0.4)]' 
-                                  : 'bg-zinc-800 text-white/20 cursor-not-allowed'
-                              }`}
-                            >
-                              {skin.price === 0 ? 'FREE' : `$${skin.price}`}
-                            </motion.button>
-                          )}
+                        <div className="mt-6 flex flex-col gap-1.5">
+                          <div className="flex justify-between text-[8px] font-black uppercase tracking-widest px-1">
+                            <span className="text-white/40">Progress to Level {getLevelFromRP(profile?.rp || 0) + 1}</span>
+                            <span className="text-yellow-400 italic">{(profile?.rp || 0) % RP_PER_LEVEL} / {RP_PER_LEVEL} RP</span>
+                          </div>
+                          <div className="h-2 bg-white/5 rounded-full overflow-hidden border border-white/10">
+                            <motion.div 
+                              initial={{ width: 0 }}
+                              animate={{ width: `${((profile?.rp || 0) % RP_PER_LEVEL) / RP_PER_LEVEL * 100}%` }}
+                              className="h-full bg-gradient-to-r from-yellow-500 to-yellow-300 shadow-[0_0_10px_rgba(234,179,8,0.5)]"
+                            />
+                          </div>
                         </div>
-                      </motion.div>
-                    );
-                  })}
+                      </div>
+
+                      {/* Missions Section */}
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between mb-1 px-1">
+                          <h3 className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">DAILY CHALLENGES</h3>
+                          <span className="text-[9px] font-bold text-blue-400 uppercase italic">Refreshes in 12h</span>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2">
+                          {[
+                            { label: 'Survival Expert', desc: 'Reach 1000 Length in one life', rp: 50, progress: Math.min(100, Math.floor((profile?.highScore || 0) / 1000 * 100)) },
+                            { label: 'Combat Ready', desc: 'Eliminate 5 Players today', rp: 100, progress: 20 },
+                            { label: 'Match Veteran', desc: 'Play 3 separate matches', rp: 30, progress: 60 }
+                          ].map((mission, i) => (
+                            <div key={`mission-${i}`} className="bg-zinc-900/50 border border-white/5 p-3 rounded-xl flex items-center justify-between group hover:border-yellow-400/30 transition-all">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-white/5 border border-white/10 rounded-lg flex items-center justify-center text-white/20 group-hover:text-yellow-400 transition-colors">
+                                  {i === 0 ? <Trophy size={18} /> : i === 1 ? <Skull size={18} /> : <Zap size={18} />}
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                  <span className="text-xs font-black text-white uppercase italic tracking-tighter leading-none">{mission.label}</span>
+                                  <span className="text-[9px] text-white/30 truncate max-w-[140px] mt-1 pr-2">{mission.desc}</span>
+                                  <div className="w-24 h-0.5 bg-white/5 rounded-full overflow-hidden mt-1.5">
+                                    <div className="h-full bg-blue-500" style={{ width: `${mission.progress}%` }} />
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5 bg-yellow-400/10 px-2.5 py-1.5 rounded-lg border border-yellow-400/20 group-hover:scale-105 transition-transform shrink-0">
+                                <Zap size={10} className="text-yellow-400 fill-yellow-400" />
+                                <span className="text-[10px] font-black text-yellow-400 italic">+{mission.rp}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Reward List */}
+                      <div className="flex flex-col gap-3 pb-8">
+                        <div className="flex items-center justify-between mb-1 px-1">
+                          <h3 className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">TIER REWARDS</h3>
+                          <span className="text-[9px] font-bold text-yellow-400 uppercase italic">Season Rewards</span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {Array.from({ length: 50 }, (_, i) => i + 1).map(level => {
+                            const reward = RP_REWARDS[level];
+                            const isReached = level <= getLevelFromRP(profile?.rp || 0);
+                            const isClaimed = profile?.claimedRewards?.includes(level);
+                            const canClaim = isReached && !isClaimed;
+
+                            return (
+                              <motion.div 
+                                key={`rp-level-${level}`}
+                                whileHover={!isReached ? {} : { y: -5 }}
+                                className={`flex flex-col p-4 rounded-2xl border transition-all ${
+                                  !isReached ? 'bg-zinc-900/30 border-white/5 opacity-40' : 
+                                  isClaimed ? 'bg-green-500/10 border-green-500/20' : 
+                                  'bg-zinc-900 border-white/10 shadow-lg ring-1 ring-white/5'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-4">
+                                  <div className={`px-2 py-0.5 rounded text-[10px] font-black italic tracking-tighter ${
+                                    isReached ? 'bg-yellow-400 text-black' : 'bg-zinc-800 text-white/40'
+                                  }`}>
+                                    TIER {level}
+                                  </div>
+                                  {!isReached && <Lock size={14} className="text-white/20" />}
+                                  {isClaimed && <Check size={14} className="text-green-500" strokeWidth={4} />}
+                                </div>
+                                
+                                <div className="flex-1 flex flex-col items-center justify-center py-4 bg-black/20 rounded-xl mb-4">
+                                  {reward?.type === 'money' ? (
+                                    <div className="flex flex-col items-center">
+                                      <DollarSign size={24} className="text-yellow-400 mb-1" />
+                                      <span className="text-xl font-black text-white italic tracking-tighter">${reward.value}</span>
+                                    </div>
+                                  ) : reward?.type === 'skin' || reward?.type === 'head' ? (
+                                    <div className="flex flex-col items-center">
+                                      <ShoppingBag size={24} className="text-blue-400 mb-1" />
+                                      <span className="text-[10px] font-black text-white uppercase truncate max-w-full italic px-2">{reward.label}</span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-col items-center">
+                                      <Zap size={24} className="text-purple-400 mb-1" />
+                                      <span className="text-[10px] font-black text-white uppercase italic">{reward?.label || 'REWARD'}</span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {canClaim ? (
+                                  <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => claimReward(level)}
+                                    className="w-full py-2 bg-yellow-400 text-black font-black text-[10px] rounded-lg italic tracking-tighter uppercase shadow-[0_0_20px_rgba(234,179,8,0.3)]"
+                                  >
+                                    Claim Reward
+                                  </motion.button>
+                                ) : !isReached ? (
+                                  <div className="w-full py-2 bg-white/5 text-white/20 text-center font-black text-[10px] rounded-lg italic tracking-tighter uppercase">
+                                    Locked
+                                  </div>
+                                ) : (
+                                  <div className="w-full py-2 bg-green-500/20 text-green-500 text-center font-black text-[10px] rounded-lg italic tracking-tighter uppercase">
+                                    Claimed
+                                  </div>
+                                )}
+                              </motion.div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}

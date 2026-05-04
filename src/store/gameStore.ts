@@ -30,7 +30,8 @@ import {
   deleteDoc,
   writeBatch,
   handleFirestoreError,
-  OperationType
+  OperationType,
+  increment
 } from '../lib/firebase';
 import { User as FirebaseUser, onAuthStateChanged } from 'firebase/auth';
 
@@ -50,6 +51,7 @@ export const SKINS: Skin[] = [
   { id: 'skull', name: 'Skull Head', type: 'pattern', value: 'skull', price: 1500 },
   { id: 'viking', name: 'Viking Head', type: 'pattern', value: 'viking', price: 1200 },
   { id: 'redcap', name: 'Red Cap', type: 'pattern', value: 'redcap', price: 400 },
+  { id: 'snake-head', name: 'Snake Head', type: 'pattern', value: 'snake', price: 800 },
   { id: 'admin-neon', name: 'Admin Neon', type: 'pattern', value: 'admin', price: 0 },
 ];
 
@@ -58,10 +60,39 @@ interface UserProfile {
   displayName: string;
   photoURL?: string | null;
   money: number;
+  rp: number;
+  claimedRewards: number[];
   ownedSkins: string[];
   currentSkin: string;
   highScore?: number;
 }
+
+export const RP_REWARDS: Record<number, { type: 'money' | 'skin' | 'head', value: any, label: string }> = {
+  1: { type: 'money', value: 50, label: '$50' },
+  2: { type: 'money', value: 100, label: '$100' },
+  3: { type: 'money', value: 150, label: '$150' },
+  4: { type: 'money', value: 200, label: '$200' },
+  5: { type: 'money', value: 300, label: '$300' },
+  7: { type: 'money', value: 400, label: '$400' },
+  10: { type: 'skin', value: 'neon-red', label: 'Neon Red' },
+  12: { type: 'money', value: 500, label: '$500' },
+  15: { type: 'money', value: 600, label: '$600' },
+  18: { type: 'money', value: 700, label: '$700' },
+  20: { type: 'head', value: 'skull', label: 'Skull Head' },
+  22: { type: 'money', value: 800, label: '$800' },
+  25: { type: 'money', value: 1000, label: '$1000' },
+  28: { type: 'head', value: 'snake-head', label: 'Snake Head' },
+  30: { type: 'head', value: 'viking', label: 'Viking Head' },
+  32: { type: 'money', value: 1200, label: '$1200' },
+  35: { type: 'money', value: 1500, label: '$1500' },
+  40: { type: 'money', value: 2000, label: '$2000' },
+  45: { type: 'money', value: 5000, label: '$5000' },
+  50: { type: 'skin', value: 'usa', label: 'USA Skin' },
+};
+
+export const RP_PER_LEVEL = 100;
+export const getRPForLevel = (level: number) => level * RP_PER_LEVEL;
+export const getLevelFromRP = (rp: number) => Math.min(50, Math.floor(rp / RP_PER_LEVEL));
 
 interface GameStore {
   socket: Socket | null;
@@ -77,6 +108,8 @@ interface GameStore {
   joystickAngle: number | null;
   leaderboardRange: 'live' | 'daily' | 'weekly' | 'all-time';
   globalLeaderboard: LeaderboardEntry[];
+  dailyLeaderboard: LeaderboardEntry[];
+  nextResetAt: number | null;
   isAdmin: boolean;
   customSkins: Skin[];
   setLeaderboardRange: (range: 'live' | 'daily' | 'weekly' | 'all-time') => void;
@@ -99,6 +132,7 @@ interface GameStore {
   deleteCustomSkin: (skinId: string) => Promise<void>;
   setMoney: (amount: number) => Promise<void>;
   resetAllUsersMoney: () => Promise<void>;
+  claimReward: (level: number) => Promise<void>;
   _profileUnsubscribe?: (() => void) | null;
   _skinsUnsubscribe?: (() => void) | null;
 }
@@ -120,6 +154,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   joystickAngle: null as number | null,
   leaderboardRange: 'live',
   globalLeaderboard: [],
+  dailyLeaderboard: [],
+  nextResetAt: null,
   isAdmin: false,
   customSkins: [],
   _profileUnsubscribe: null,
@@ -221,11 +257,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       
       get().addNotification(message);
 
-      // Reward killer with money
+      // Reward killer with money and RP
       if (data.killerId === playerId && user && profile) {
         const userRef = doc(db, 'users', user.uid);
         updateDoc(userRef, {
-          money: profile.money + 50,
+          money: increment(50),
+          rp: increment(100) // 100 RP per kill
         }).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));
       }
 
@@ -238,32 +275,63 @@ export const useGameStore = create<GameStore>((set, get) => ({
             isDead: true, 
             lastDeathStats: { 
               score, 
-              kills: 0, // We don't track per-session kills in state yet, but we could
+              kills: 0, 
               killerName: data.killerName 
             } 
           });
 
-          try {
-            // Save to global scores if significant
-            if (score > 10) {
-              await addDoc(collection(db, 'scores'), {
-                userId: user.uid,
-                name: myPlayer.name,
-                score: score,
-                timestamp: serverTimestamp()
-              });
-            }
+            try {
+              // Save to global scores if significant
+              if (score > 10) {
+                try {
+                  await addDoc(collection(db, 'scores'), {
+                    userId: user.uid,
+                    name: myPlayer.name,
+                    score: score,
+                    timestamp: serverTimestamp()
+                  });
+                } catch (err) {
+                  handleFirestoreError(err, OperationType.WRITE, 'scores');
+                }
+                
+                try {
+                  await addDoc(collection(db, 'dailyScores'), {
+                    userId: user.uid,
+                    name: myPlayer.name,
+                    score: score,
+                    timestamp: serverTimestamp()
+                  });
+                } catch (err) {
+                  handleFirestoreError(err, OperationType.WRITE, 'dailyScores');
+                }
 
-            // Update user high score
-            if (score > (profile.highScore || 0)) {
-              const userRef = doc(db, 'users', user.uid);
-              await updateDoc(userRef, {
-                highScore: score
-              });
+                // Award RP for score (1 RP per 10 points)
+                const rpBonus = Math.floor(score / 10);
+                const userRef = doc(db, 'users', user.uid);
+                try {
+                  await updateDoc(userRef, {
+                    rp: increment(rpBonus)
+                  });
+                } catch (err) {
+                  handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/rp`);
+                }
+              }
+
+              // Update user high score
+              if (score > (profile.highScore || 0)) {
+                const userRef = doc(db, 'users', user.uid);
+                try {
+                  await updateDoc(userRef, {
+                    highScore: score
+                  });
+                } catch (err) {
+                  handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/highScore`);
+                }
+              }
+            } catch (err) {
+              // General catch for non-Firestore errors or unexpected failures
+              console.error('Final score processing error:', err);
             }
-          } catch (err) {
-            handleFirestoreError(err, OperationType.WRITE, 'scores/users');
-          }
         }
       }
     });
@@ -291,10 +359,73 @@ export const useGameStore = create<GameStore>((set, get) => ({
       set({ _skinsUnsubscribe: unsub });
     }
 
+    // Listen for Daily Leaderboard
+    const dailyRef = collection(db, 'dailyScores');
+    const dailyQuery = query(dailyRef, orderBy('score', 'desc'), limit(10));
+    onSnapshot(dailyQuery, (snap) => {
+      const entries = snap.docs.map(doc => {
+        const d = doc.data();
+        return {
+          id: doc.id,
+          uid: d.userId,
+          name: d.name || 'Anonymous',
+          score: d.score || 0,
+          color: '#fff'
+        };
+      });
+      set({ dailyLeaderboard: entries });
+    });
+
     // Firebase Auth Listener
     onAuthStateChanged(auth, async (user) => {
       set({ user, isAuthLoading: false });
       if (user) {
+        // Daily Reset & Prizes Logic
+        const checkReset = async () => {
+          try {
+            const globalRef = doc(db, 'system', 'globals');
+            const globalDoc = await getDoc(globalRef);
+            const now = Date.now();
+            let nextReset = 0;
+
+            if (!globalDoc.exists()) {
+              nextReset = now + 24 * 60 * 60 * 1000;
+              await setDoc(globalRef, { nextResetAt: new Date(nextReset).toISOString() });
+            } else {
+              const data = globalDoc.data();
+              nextReset = new Date(data.nextResetAt).getTime();
+            }
+
+            set({ nextResetAt: nextReset });
+
+            if (now > nextReset) {
+              // Reset time! Apply prizes
+              const dailySnap = await getDocs(query(collection(db, 'dailyScores'), orderBy('score', 'desc'), limit(3)));
+              const winners = dailySnap.docs.map(d => d.data());
+              const prizes = [250, 150, 50];
+
+              const batch = writeBatch(db);
+              for (let i = 0; i < winners.length; i++) {
+                const winnerUid = winners[i].userId;
+                const userRef = doc(db, 'users', winnerUid);
+                batch.update(userRef, { money: increment(prizes[i]) });
+              }
+
+              // Clear daily scores (lazy)
+              const allDaily = await getDocs(collection(db, 'dailyScores'));
+              allDaily.docs.forEach(d => batch.delete(d.ref));
+
+              // Update next reset
+              batch.update(globalRef, { nextResetAt: new Date(now + 24 * 60 * 60 * 1000).toISOString() });
+              await batch.commit();
+              get().addNotification("Daily Leadboard Reset! Prizes awarded.");
+            }
+          } catch (err) {
+            console.error('Reset check failed', err);
+          }
+        };
+        checkReset();
+
         try {
           const userRef = doc(db, 'users', user.uid);
           const userDoc = await getDoc(userRef);
@@ -305,6 +436,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
               displayName: user.displayName || 'Anonymous',
               photoURL: user.photoURL || null,
               money: 0,
+              rp: 0,
+              claimedRewards: [],
               ownedSkins: ['neon-pink'],
               currentSkin: 'neon-pink',
               highScore: 0,
@@ -367,6 +500,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         displayName: username,
         photoURL: avatarUrl || null,
         money: 0,
+        rp: 0,
+        claimedRewards: [],
         ownedSkins: ['neon-pink'],
         currentSkin: 'neon-pink',
         highScore: 0,
@@ -509,21 +644,37 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   resetAllUsersMoney: async () => {
-    const { isAdmin } = get();
-    if (!isAdmin) return;
+    // ...
+  },
 
+  claimReward: async (level) => {
+    const { profile, user } = get();
+    if (!profile || !user) return;
+
+    const currentLevel = getLevelFromRP(profile.rp);
+    if (level > currentLevel || profile.claimedRewards.includes(level)) return;
+
+    const reward = RP_REWARDS[level];
+    if (!reward) return;
+
+    const userRef = doc(db, 'users', user.uid);
     try {
-      const usersSnap = await getDocs(collection(db, 'users'));
-      const batch = writeBatch(db);
-      
-      usersSnap.docs.forEach(u => {
-        batch.update(u.ref, { money: 0 });
-      });
+      const updates: any = {
+        claimedRewards: [...profile.claimedRewards, level]
+      };
 
-      await batch.commit();
-      get().addNotification(`NUKED ALL BALANCES TO $0`);
+      if (reward.type === 'money') {
+        updates.money = increment(reward.value);
+      } else if (reward.type === 'skin' || reward.type === 'head') {
+        if (!profile.ownedSkins.includes(reward.value)) {
+          updates.ownedSkins = [...profile.ownedSkins, reward.value];
+        }
+      }
+
+      await updateDoc(userRef, updates);
+      get().addNotification(`Claimed Level ${level} reward: ${reward.label}!`);
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'users/all');
+      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
     }
   },
 
@@ -589,7 +740,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             const latestProfile = get().profile;
             if (latestProfile) {
               await updateDoc(userRef, {
-                money: latestProfile.money,
+                money: increment(1),
               });
             }
           } catch (err) {

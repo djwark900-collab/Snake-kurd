@@ -222,7 +222,7 @@ function Snake({ playerId, color, skinId, isLocal, localSegments }: { playerId: 
     const isKurdistan = skinId === 'kurdistan';
     const isRealMadrid = skinId === 'realmadrid';
     const isUSA = skinId === 'usa';
-    const isRealSnake = skinId === 'real-snake';
+    const isRealSnake = skinId === 'real-snake' || skinId === 'snake-head';
     const isAdmin = skinId === 'admin-neon';
     
     // Look up custom skin if not a base skin
@@ -351,7 +351,7 @@ function Snake({ playerId, color, skinId, isLocal, localSegments }: { playerId: 
         {skinId === 'skull' && <SkullHat />}
         {skinId === 'viking' && <VikingHelmet />}
         {skinId === 'redcap' && <RedCap />}
-        {skinId === 'real-snake' && <RealSnakeHead />}
+        {(skinId === 'real-snake' || skinId === 'snake-head') && <RealSnakeHead />}
         {skinId === 'admin-neon' && <AdminAccessory />}
       </Sphere>
       <instancedMesh ref={bodyRef} args={[undefined, undefined, 2000]} frustumCulled={false}>

@@ -17,6 +17,7 @@ export type Skin = {
   type: 'color' | 'pattern';
   value: string; // Hex color or pattern ID
   price: number;
+  isEvent?: boolean;
 };
 
 export type Player = {
@@ -27,6 +28,7 @@ export type Player = {
   skin?: string;
   segments: { x: number; y: number }[];
   score: number;
+  kills?: number;
   isBoosting: boolean;
   multiplier?: number;
   multiplierExpires?: number;

@@ -10,6 +10,8 @@
         "photoURL": { "type": "string" },
         "email": { "type": "string" },
         "money": { "type": "integer" },
+        "rp": { "type": "integer", "description": "Rank Points" },
+        "claimedRewards": { "type": "array", "items": { "type": "integer" } },
         "ownedSkins": { "type": "array", "items": { "type": "string" } },
         "currentSkin": { "type": "string" },
         "highScore": { "type": "integer" },
@@ -37,8 +39,9 @@
       "properties": {
         "name": { "type": "string" },
         "price": { "type": "integer" },
-        "type": { "type": "string", "enum": ["color", "pattern"] },
-        "value": { "type": "string" }
+        "type": { "type": "string", "enum": ["color", "pattern", "head"] },
+        "value": { "type": "string" },
+        "isEvent": { "type": "boolean" }
       },
       "required": ["name", "price", "type", "value"]
     }
@@ -55,6 +58,19 @@
     "skins/{skinId}": {
       "schema": "Skin",
       "description": "Custom snake skins"
+    },
+    "dailyScores/{scoreId}": {
+      "schema": "Score",
+      "description": "Daily reset leaderboard scores"
+    },
+    "system/globals": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "nextResetAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "description": "Global system state"
     }
   }
 }

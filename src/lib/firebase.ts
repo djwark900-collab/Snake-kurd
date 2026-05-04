@@ -25,7 +25,8 @@ import {
   addDoc, 
   deleteDoc, 
   writeBatch,
-  getDocFromServer
+  getDocFromServer,
+  increment
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -120,5 +121,6 @@ export {
   addDoc,
   deleteDoc,
   writeBatch,
-  getDocFromServer
+  getDocFromServer,
+  increment
 };
