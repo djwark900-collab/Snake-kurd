@@ -5,7 +5,7 @@
 
 import { useGameStore, SKINS, RP_REWARDS, getRPForLevel, getLevelFromRP, RP_PER_LEVEL } from '../store/gameStore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, ShoppingBag, LogIn, LogOut, User, DollarSign, ChevronLeft, Check, Mail, Lock, UserPlus, Trash2, Settings, Share2, Star, Zap, Gift, Skull } from 'lucide-react';
+import { Trophy, ShoppingBag, LogIn, LogOut, User, DollarSign, ChevronLeft, Check, Mail, Lock, UserPlus, Trash2, Settings, Share2, Star, Zap, Gift, Skull, RefreshCw, Home } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { GameState, WORLD_SIZE } from '../shared/types';
 
@@ -79,16 +79,7 @@ export function UI() {
   const [view, setView] = useState<'lobby' | 'shop' | 'leaderboard' | 'rankpass'>('lobby');
   const [showHUDLeaderboard, setShowHUDLeaderboard] = useState(true);
   const [showMinimap, setShowMinimap] = useState(true);
-  const [isPortrait, setIsPortrait] = useState(false);
 
-  useEffect(() => {
-    const checkOrientation = () => {
-      setIsPortrait(window.innerHeight > window.innerWidth && window.innerWidth < 768);
-    };
-    checkOrientation();
-    window.addEventListener('resize', checkOrientation);
-    return () => window.removeEventListener('resize', checkOrientation);
-  }, []);
   const [joystickStart, setJoystickStart] = useState<{ x: number, y: number } | null>(null);
   const [joystickPos, setJoystickPos] = useState<{ x: number, y: number }>({ x: 0, y: 0 });
 
@@ -140,12 +131,7 @@ export function UI() {
   }, [isDead]);
 
   useEffect(() => {
-    if (isDead && deathTimer === 0) {
-      setTimeout(() => {
-        useGameStore.setState({ isDead: false, lastDeathStats: null });
-        setView('lobby');
-      }, 0);
-    }
+    // Automatic lobby redirection removed as requested
   }, [isDead, deathTimer]);
 
   const player = playerId && gameState ? gameState.players[playerId] : null;
@@ -422,21 +408,6 @@ export function UI() {
 
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4">
-      {/* Orientation Overlay */}
-      {isPortrait && (
-        <div className="fixed inset-0 z-[1000] bg-black flex flex-col items-center justify-center p-8 text-center pointer-events-auto">
-          <motion.div
-            animate={{ rotate: [0, 90, 0] }}
-            transition={{ duration: 2, repeat: Infinity }}
-            className="mb-6 text-blue-500"
-          >
-            <Share2 size={64} className="rotate-90" />
-          </motion.div>
-          <h2 className="text-2xl font-black text-white mb-2 uppercase italic">Rotate Device</h2>
-          <p className="text-white/40 text-sm">Please rotate your device to landscape for the best experience.</p>
-        </div>
-      )}
-
       {/* Top Bar - High Priority Layer */}
       <div className="absolute inset-x-0 top-0 p-4 pointer-events-none z-[120]">
         <div className="flex justify-between items-start">
@@ -493,7 +464,16 @@ export function UI() {
           
           <div className="flex items-center gap-2 pointer-events-auto">
             <motion.button
-              onClick={() => setTimeout(() => setView('rankpass'), 0)}
+              onClick={() => setTimeout(() => setView(view === 'shop' ? 'lobby' : 'shop'), 0)}
+              whileHover={{ scale: 1.1, backgroundColor: 'rgba(168, 85, 247, 0.2)', color: 'rgb(168, 85, 247)' }}
+              whileTap={{ scale: 0.9 }}
+              className={`p-2 bg-white/10 backdrop-blur-md rounded-full text-white transition-colors ${view === 'shop' ? 'bg-purple-500/30 text-purple-400' : ''}`}
+              title="Shop"
+            >
+              <ShoppingBag size={16} />
+            </motion.button>
+            <motion.button
+              onClick={() => setTimeout(() => setView(view === 'rankpass' ? 'lobby' : 'rankpass'), 0)}
               whileHover={{ scale: 1.1, backgroundColor: 'rgba(59, 130, 246, 0.2)', color: 'rgb(59, 130, 246)' }}
               whileTap={{ scale: 0.9 }}
               className={`p-2 bg-white/10 backdrop-blur-md rounded-full text-white transition-colors ${view === 'rankpass' ? 'bg-blue-500/30 text-blue-400' : ''}`}
@@ -502,10 +482,10 @@ export function UI() {
               <Zap size={16} />
             </motion.button>
             <motion.button
-              onClick={() => setTimeout(() => setView('leaderboard'), 0)}
+              onClick={() => setTimeout(() => setView(view === 'leaderboard' ? 'lobby' : 'leaderboard'), 0)}
               whileHover={{ scale: 1.1, backgroundColor: 'rgba(234, 179, 8, 0.2)', color: 'rgb(253, 224, 71)' }}
               whileTap={{ scale: 0.9 }}
-              className="p-2 bg-white/10 backdrop-blur-md rounded-full text-white transition-colors"
+              className={`p-2 bg-white/10 backdrop-blur-md rounded-full text-white transition-colors ${view === 'leaderboard' ? 'bg-yellow-500/30 text-yellow-400' : ''}`}
               title="Leaderboard"
             >
               <Trophy size={16} />
@@ -672,18 +652,6 @@ export function UI() {
               </div>
 
               <div className="pt-4 border-t border-white/5 flex flex-col gap-2">
-                {isAlive && (
-                  <button 
-                    onClick={() => {
-                      // Logic to quit game
-                      window.location.reload(); // Simplest way to "exit" to lobby reliably if multiple states are involved
-                    }}
-                    className="w-full py-3 bg-red-500/10 text-red-500 border border-red-500/20 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-red-500/20 transition-colors"
-                  >
-                    <LogOut size={14} />
-                    Quit to Lobby
-                  </button>
-                )}
                 <button 
                    onClick={() => {
                      navigator.clipboard.writeText(window.location.href);
@@ -707,16 +675,6 @@ export function UI() {
                 >
                   <LogOut size={14} />
                   Sign Out
-                </button>
-                <button 
-                   onClick={() => {
-                     if(confirm("DANGER: This will PERMANENTLY delete your account and all progress. This action cannot be undone. Proceed?")) {
-                       deleteAccount();
-                     }
-                   }}
-                   className="w-full py-2 text-red-500/30 text-[9px] font-black uppercase tracking-widest hover:text-red-500 transition-colors mt-2"
-                >
-                  Delete Account Forever
                 </button>
               </div>
             </div>
@@ -1014,25 +972,15 @@ export function UI() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => {
-              setTimeout(() => {
-                useGameStore.setState({ isDead: false, lastDeathStats: null });
-                setView('lobby');
-              }, 0);
-            }}
-            className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black/90 backdrop-blur-md z-[200] cursor-pointer"
+            className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black/90 backdrop-blur-md z-[200]"
           >
             <motion.div
               initial={{ scale: 0.8, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               onClick={(e) => {
                 e.stopPropagation();
-                setTimeout(() => {
-                  useGameStore.setState({ isDead: false, lastDeathStats: null });
-                  setView('lobby');
-                }, 0);
               }}
-              className="bg-zinc-900 border border-white/20 p-10 rounded-[2.5rem] shadow-2xl max-w-md w-full flex flex-col items-center gap-8 relative overflow-hidden cursor-pointer group"
+              className="bg-zinc-900 border border-white/20 p-10 rounded-[2.5rem] shadow-2xl max-w-md w-full flex flex-col items-center gap-8 relative overflow-hidden group"
             >
               <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-500 via-orange-500 to-red-500 animate-pulse" />
               
@@ -1058,21 +1006,21 @@ export function UI() {
               </div>
 
               <div className="w-full flex flex-col gap-3">
-                <motion.button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setTimeout(() => {
-                      useGameStore.setState({ isDead: false, lastDeathStats: null });
-                      joinGame();
-                    }, 0);
-                  }}
-                  whileHover={{ scale: 1.05, boxShadow: '0 0 30px rgba(59, 130, 246, 0.5)' }}
-                  whileTap={{ scale: 0.95 }}
-                  className="w-full py-5 bg-blue-600 text-white font-black text-3xl rounded-2xl transition-all shadow-[0_0_20px_rgba(59, 130, 246, 0.3)] italic tracking-tighter relative z-10"
-                >
-                  RESPAWN NOW
-                </motion.button>
-                <div className="relative w-full">
+                <div className="flex flex-col gap-3 w-full">
+                  <motion.button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setTimeout(() => {
+                        useGameStore.setState({ isDead: false, lastDeathStats: null });
+                        joinGame();
+                      }, 0);
+                    }}
+                    whileHover={{ scale: 1.05, boxShadow: '0 0 30px rgba(59, 130, 246, 0.5)' }}
+                    whileTap={{ scale: 0.95 }}
+                    className="w-full py-5 bg-blue-600 text-white font-black text-3xl rounded-2xl transition-all shadow-[0_0_20px_rgba(59, 130, 246, 0.3)] italic tracking-tighter relative z-10"
+                  >
+                    RESPAWN NOW
+                  </motion.button>
                   <motion.button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1083,18 +1031,12 @@ export function UI() {
                     }}
                     whileHover={{ scale: 1.02, backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
                     whileTap={{ scale: 0.95 }}
-                    className="w-full py-4 bg-white/5 text-white/60 font-black text-sm rounded-2xl transition-all border border-white/10 relative z-10"
+                    className="w-full py-4 bg-white/5 text-white/80 font-black text-sm rounded-2xl transition-all border border-white/10 flex items-center justify-center gap-2 relative z-10"
                   >
-                    BACK TO LOBBY ({deathTimer}s)
+                    <Home size={16} />
+                    GO TO LOBBY
                   </motion.button>
-                  <motion.div 
-                    initial={{ width: '100%' }}
-                    animate={{ width: '0%' }}
-                    transition={{ duration: 3, ease: 'linear' }}
-                    className="absolute bottom-0 left-0 h-0.5 bg-white/20 rounded-full"
-                  />
                 </div>
-                <span className="text-[9px] text-white/20 font-black uppercase text-center tracking-widest group-hover:text-white/40 transition-colors">Tap anywhere to return to lobby</span>
               </div>
 
               <div className="flex items-center gap-2 bg-yellow-400/10 border border-yellow-400/20 px-4 py-2 rounded-full">
@@ -1250,7 +1192,7 @@ export function UI() {
                     onClick={() => setTimeout(() => setView('lobby'), 0)}
                     whileHover={{ scale: 1.1, backgroundColor: 'rgba(255,255,255,0.1)' }}
                     whileTap={{ scale: 0.9 }}
-                    className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-2xl text-white transition-all hover:text-blue-400 group/back"
+                    className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-2xl text-white transition-all hover:text-blue-400 group/back pointer-events-auto"
                   >
                     <ChevronLeft size={20} className="group-hover/back:-translate-x-1 transition-transform" />
                     <span className="text-[10px] font-black uppercase tracking-widest">Lobby</span>
@@ -1261,7 +1203,14 @@ export function UI() {
                     </h2>
                     {view === 'rankpass' && <span className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em]">SEASON 1</span>}
                   </div>
-                  {view === 'shop' ? <DollarSign size={24} className="text-yellow-400" /> : view === 'rankpass' ? <Zap size={24} className="text-yellow-400 fill-yellow-400" /> : <Trophy size={24} className="text-yellow-400" />}
+                  <motion.button
+                    onClick={() => setTimeout(() => setView('lobby'), 0)}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    className="w-24 flex justify-end pointer-events-auto"
+                  >
+                    {view === 'shop' ? <DollarSign size={24} className="text-yellow-400" /> : view === 'rankpass' ? <Zap size={24} className="text-yellow-400 fill-yellow-400" /> : <Trophy size={24} className="text-yellow-400" />}
+                  </motion.button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">

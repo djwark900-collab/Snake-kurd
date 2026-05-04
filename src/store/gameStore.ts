@@ -312,7 +312,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`));
       }
 
-      // If we are the victim, save high score and show game over
+      // If we are the victim, show game over
       if (data.victimId === playerId && user && profile && gameState) {
         const myPlayer = gameState.players[playerId];
         if (myPlayer) {
@@ -328,58 +328,59 @@ export const useGameStore = create<GameStore>((set, get) => ({
             } 
           });
 
-            try {
-              // Save to global scores if significant
-              if (score > 10) {
-                try {
-                  await addDoc(collection(db, 'scores'), {
-                    userId: user.uid,
-                    name: myPlayer.name,
-                    score: score,
-                    timestamp: serverTimestamp()
-                  });
-                } catch (err) {
-                  handleFirestoreError(err, OperationType.WRITE, 'scores');
-                }
-                
-                try {
-                  await addDoc(collection(db, 'dailyScores'), {
-                    userId: user.uid,
-                    name: myPlayer.name,
-                    score: score,
-                    timestamp: serverTimestamp()
-                  });
-                } catch (err) {
-                  handleFirestoreError(err, OperationType.WRITE, 'dailyScores');
-                }
-
-                // Award RP for score (1 RP per 10 points)
-                const rpBonus = Math.floor(score / 10);
-                const userRef = doc(db, 'users', user.uid);
-                try {
-                  await updateDoc(userRef, {
-                    rp: increment(rpBonus)
-                  });
-                } catch (err) {
-                  handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/rp`);
-                }
+          // Score saving
+          try {
+            // Save to global scores if significant
+            if (score > 10) {
+              try {
+                await addDoc(collection(db, 'scores'), {
+                  userId: user.uid,
+                  name: myPlayer.name,
+                  score: score,
+                  timestamp: serverTimestamp()
+                });
+              } catch (err) {
+                handleFirestoreError(err, OperationType.WRITE, 'scores');
+              }
+              
+              try {
+                await addDoc(collection(db, 'dailyScores'), {
+                  userId: user.uid,
+                  name: myPlayer.name,
+                  score: score,
+                  timestamp: serverTimestamp()
+                });
+              } catch (err) {
+                handleFirestoreError(err, OperationType.WRITE, 'dailyScores');
               }
 
-              // Update user high score
-              if (score > (profile.highScore || 0)) {
-                const userRef = doc(db, 'users', user.uid);
-                try {
-                  await updateDoc(userRef, {
-                    highScore: score
-                  });
-                } catch (err) {
-                  handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/highScore`);
-                }
+              // Award RP for score (1 RP per 10 points)
+              const rpBonus = Math.floor(score / 10);
+              const userRef = doc(db, 'users', user.uid);
+              try {
+                await updateDoc(userRef, {
+                  rp: increment(rpBonus)
+                });
+              } catch (err) {
+                handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/rp`);
               }
-            } catch (err) {
-              // General catch for non-Firestore errors or unexpected failures
-              console.error('Final score processing error:', err);
             }
+
+            // Update user high score
+            if (score > (profile.highScore || 0)) {
+              const userRef = doc(db, 'users', user.uid);
+              try {
+                await updateDoc(userRef, {
+                  highScore: score
+                });
+              } catch (err) {
+                handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/highScore`);
+              }
+            }
+          } catch (err) {
+            // General catch for non-Firestore errors or unexpected failures
+            console.error('Final score processing error:', err);
+          }
         }
       }
     });
