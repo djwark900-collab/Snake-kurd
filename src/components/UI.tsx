@@ -60,6 +60,8 @@ export function UI() {
   const verifyAdmin = useGameStore(state => state.verifyAdmin);
   const addCustomSkin = useGameStore(state => state.addCustomSkin);
   const deleteCustomSkin = useGameStore(state => state.deleteCustomSkin);
+  const deleteDailyScore = useGameStore(state => state.deleteDailyScore);
+  const clearDailyLeaderboard = useGameStore(state => state.clearDailyLeaderboard);
   const customSkins = useGameStore(state => state.customSkins);
   const claimReward = useGameStore(state => state.claimReward);
   const notifications = useGameStore(state => state.notifications);
@@ -118,20 +120,20 @@ export function UI() {
     if (isDead) {
       setDeathTimer(3);
       interval = setInterval(() => {
-        setDeathTimer(prev => {
-          if (prev <= 1) {
-            if (isDead) {
-              useGameStore.setState({ isDead: false, lastDeathStats: null });
-              setView('lobby');
-            }
-            return 0;
-          }
-          return prev - 1;
-        });
+        setDeathTimer(prev => prev > 0 ? prev - 1 : 0);
       }, 1000);
     }
     return () => clearInterval(interval);
   }, [isDead]);
+
+  useEffect(() => {
+    if (isDead && deathTimer === 0) {
+      setTimeout(() => {
+        useGameStore.setState({ isDead: false, lastDeathStats: null });
+        setView('lobby');
+      }, 0);
+    }
+  }, [isDead, deathTimer]);
 
   const player = playerId && gameState ? gameState.players[playerId] : null;
   const isAlive = player?.state === 'alive';
@@ -162,6 +164,7 @@ export function UI() {
   const updateAvatar = useGameStore(state => state.updateAvatar);
   const setMoney = useGameStore(state => state.setMoney);
   const resetAllUsersMoney = useGameStore(state => state.resetAllUsersMoney);
+  const claimMission = useGameStore(state => state.claimMission);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -430,7 +433,7 @@ export function UI() {
                     <span className="text-sm font-bold text-white font-mono">{profile.money}</span>
                   </div>
                   {!isAlive && (
-                    <div className="bg-zinc-800/80 backdrop-blur-sm border border-white/10 px-3 py-1 rounded-full flex items-center gap-2 cursor-pointer hover:bg-zinc-700/80 transition-all" onClick={() => setView('rankpass')}>
+                    <div className="bg-zinc-800/80 backdrop-blur-sm border border-white/10 px-3 py-1 rounded-full flex items-center gap-2 cursor-pointer hover:bg-zinc-700/80 transition-all" onClick={() => setTimeout(() => setView('rankpass'), 0)}>
                       <Zap size={14} className="text-yellow-400 fill-yellow-400" />
                       <span className="text-sm font-bold text-white font-mono">LVL {getLevelFromRP(profile.rp)}</span>
                     </div>
@@ -462,7 +465,7 @@ export function UI() {
           
           <div className="flex items-center gap-2 pointer-events-auto">
             <motion.button
-              onClick={() => setView('rankpass')}
+              onClick={() => setTimeout(() => setView('rankpass'), 0)}
               whileHover={{ scale: 1.1, backgroundColor: 'rgba(59, 130, 246, 0.2)', color: 'rgb(59, 130, 246)' }}
               whileTap={{ scale: 0.9 }}
               className={`p-2 bg-white/10 backdrop-blur-md rounded-full text-white transition-colors ${view === 'rankpass' ? 'bg-blue-500/30 text-blue-400' : ''}`}
@@ -471,7 +474,7 @@ export function UI() {
               <Zap size={16} />
             </motion.button>
             <motion.button
-              onClick={() => setView('leaderboard')}
+              onClick={() => setTimeout(() => setView('leaderboard'), 0)}
               whileHover={{ scale: 1.1, backgroundColor: 'rgba(234, 179, 8, 0.2)', color: 'rgb(253, 224, 71)' }}
               whileTap={{ scale: 0.9 }}
               className="p-2 bg-white/10 backdrop-blur-md rounded-full text-white transition-colors"
@@ -609,6 +612,18 @@ export function UI() {
               </div>
 
               <div className="pt-4 border-t border-white/5 flex flex-col gap-2">
+                {isAlive && (
+                  <button 
+                    onClick={() => {
+                      // Logic to quit game
+                      window.location.reload(); // Simplest way to "exit" to lobby reliably if multiple states are involved
+                    }}
+                    className="w-full py-3 bg-red-500/10 text-red-500 border border-red-500/20 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-red-500/20 transition-colors"
+                  >
+                    <LogOut size={14} />
+                    Quit to Lobby
+                  </button>
+                )}
                 <button 
                    onClick={() => {
                      navigator.clipboard.writeText(window.location.href);
@@ -620,7 +635,7 @@ export function UI() {
                   Invite Friends
                 </button>
                 <button 
-                   onClick={() => setView('shop')}
+                   onClick={() => setTimeout(() => setView('shop'), 0)}
                    className="w-full py-3 bg-zinc-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-zinc-700 transition-colors"
                 >
                   <ShoppingBag size={14} />
@@ -853,6 +868,48 @@ export function UI() {
                 </div>
 
                 <div className="space-y-3">
+                  <div className="flex justify-between items-center px-1">
+                    <h3 className="text-sm font-black text-white/40 uppercase tracking-widest pl-1">Daily Rankings</h3>
+                    {dailyLeaderboard.length > 0 && (
+                      <button 
+                        onClick={() => {
+                          if (confirm('DANGER: Clear all daily rankings? This cannot be undone.')) {
+                            clearDailyLeaderboard();
+                          }
+                        }}
+                        className="text-[10px] font-black text-red-500/60 hover:text-red-500 uppercase flex items-center gap-1 transition-colors"
+                      >
+                        <Trash2 size={10} />
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {dailyLeaderboard.map((entry, i) => (
+                      <div key={`admin-daily-${entry.id}`} className="bg-white/5 border border-white/10 p-3 rounded-xl flex items-center justify-between group">
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] font-black text-white/20 italic">#{i + 1}</span>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-bold text-white truncate max-w-[120px]">{entry.name}</span>
+                            <span className="text-[8px] font-mono text-white/40">{entry.uid?.slice(0, 8)}...</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-xs font-black text-yellow-500 font-mono">{entry.score}</span>
+                          <button 
+                            onClick={() => { if(confirm(`Delete daily ranking for ${entry.name}?`)) deleteDailyScore(entry.id); }}
+                            className="p-1.5 hover:bg-red-500/20 text-red-500 rounded transition-all"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {dailyLeaderboard.length === 0 && <div className="text-center text-[10px] text-white/20 py-4 italic">No rankings yet today</div>}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
                   <h3 className="text-sm font-black text-white/40 uppercase tracking-widest pl-1">Live Custom Skins</h3>
                   <div className="grid grid-cols-2 gap-2">
                     {customSkins.map((s, i) => (
@@ -888,16 +945,24 @@ export function UI() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => {
-              useGameStore.setState({ isDead: false, lastDeathStats: null });
-              setView('lobby');
+              setTimeout(() => {
+                useGameStore.setState({ isDead: false, lastDeathStats: null });
+                setView('lobby');
+              }, 0);
             }}
-            className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black/80 backdrop-blur-md z-[200] cursor-pointer"
+            className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black/90 backdrop-blur-md z-[200] cursor-pointer"
           >
             <motion.div
               initial={{ scale: 0.8, y: 20 }}
               animate={{ scale: 1, y: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-zinc-900 border border-white/20 p-10 rounded-[2.5rem] shadow-2xl max-w-md w-full flex flex-col items-center gap-8 relative overflow-hidden cursor-default"
+              onClick={(e) => {
+                e.stopPropagation();
+                setTimeout(() => {
+                  useGameStore.setState({ isDead: false, lastDeathStats: null });
+                  setView('lobby');
+                }, 0);
+              }}
+              className="bg-zinc-900 border border-white/20 p-10 rounded-[2.5rem] shadow-2xl max-w-md w-full flex flex-col items-center gap-8 relative overflow-hidden cursor-pointer group"
             >
               <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-500 via-orange-500 to-red-500 animate-pulse" />
               
@@ -924,25 +989,31 @@ export function UI() {
 
               <div className="w-full flex flex-col gap-3">
                 <motion.button
-                  onClick={() => {
-                    useGameStore.setState({ isDead: false, lastDeathStats: null });
-                    joinGame();
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTimeout(() => {
+                      useGameStore.setState({ isDead: false, lastDeathStats: null });
+                      joinGame();
+                    }, 0);
                   }}
                   whileHover={{ scale: 1.05, boxShadow: '0 0 30px rgba(59, 130, 246, 0.5)' }}
                   whileTap={{ scale: 0.95 }}
-                  className="w-full py-5 bg-blue-600 text-white font-black text-3xl rounded-2xl transition-all shadow-[0_0_20px_rgba(59,130,246,0.3)] italic tracking-tighter"
+                  className="w-full py-5 bg-blue-600 text-white font-black text-3xl rounded-2xl transition-all shadow-[0_0_20px_rgba(59, 130, 246, 0.3)] italic tracking-tighter relative z-10"
                 >
                   RESPAWN NOW
                 </motion.button>
                 <div className="relative w-full">
                   <motion.button
-                    onClick={() => {
-                      useGameStore.setState({ isDead: false, lastDeathStats: null });
-                      setView('lobby');
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setTimeout(() => {
+                        useGameStore.setState({ isDead: false, lastDeathStats: null });
+                        setView('lobby');
+                      }, 0);
                     }}
-                    whileHover={{ scale: 1.05, backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
+                    whileHover={{ scale: 1.02, backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
                     whileTap={{ scale: 0.95 }}
-                    className="w-full py-4 bg-white/5 text-white/60 font-black text-sm rounded-2xl transition-all border border-white/10"
+                    className="w-full py-4 bg-white/5 text-white/60 font-black text-sm rounded-2xl transition-all border border-white/10 relative z-10"
                   >
                     BACK TO LOBBY ({deathTimer}s)
                   </motion.button>
@@ -953,6 +1024,7 @@ export function UI() {
                     className="absolute bottom-0 left-0 h-0.5 bg-white/20 rounded-full"
                   />
                 </div>
+                <span className="text-[9px] text-white/20 font-black uppercase text-center tracking-widest group-hover:text-white/40 transition-colors">Tap anywhere to return to lobby</span>
               </div>
 
               <div className="flex items-center gap-2 bg-yellow-400/10 border border-yellow-400/20 px-4 py-2 rounded-full">
@@ -1009,7 +1081,7 @@ export function UI() {
                     <div className="w-px h-6 bg-white/10" />
                     <div className="text-white/40 text-xs flex flex-col items-center">
                       <span className="font-bold text-white/60">SKIN</span>
-                      <div className="flex items-center gap-1 group/inventory cursor-pointer" onClick={() => setView('shop')}>
+                      <div className="flex items-center gap-1 group/inventory cursor-pointer" onClick={() => setTimeout(() => setView('shop'), 0)}>
                         <span className="font-bold text-white/80 uppercase truncate max-w-[100px]">
                           {SKINS.find(s => s.id === profile?.currentSkin)?.name || 'Default'}
                         </span>
@@ -1031,8 +1103,10 @@ export function UI() {
                     </motion.button>
                     <motion.button
                       onClick={() => {
-                        setLeaderboardRange('daily');
-                        setView('leaderboard');
+                        setTimeout(() => {
+                          setLeaderboardRange('daily');
+                          setView('leaderboard');
+                        }, 0);
                       }}
                       whileHover={{ scale: 1.05, backgroundColor: 'rgba(234, 179, 8, 0.2)' }}
                       whileTap={{ scale: 0.95 }}
@@ -1045,7 +1119,7 @@ export function UI() {
                     </div>
                   </motion.button>
                   <motion.button
-                    onClick={joinGame}
+                    onClick={() => setTimeout(() => joinGame(), 0)}
                     whileHover={{ scale: 1.05, boxShadow: '0 0 25px rgba(255,255,255,0.4)' }}
                     whileTap={{ scale: 0.95 }}
                     className="w-full py-4 bg-white text-black font-black text-xl rounded-2xl transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)]"
@@ -1054,7 +1128,7 @@ export function UI() {
                   </motion.button>
                   <div className="grid grid-cols-2 gap-3">
                     <motion.button
-                      onClick={() => setView('shop')}
+                      onClick={() => setTimeout(() => setView('shop'), 0)}
                       whileHover={{ scale: 1.05, backgroundColor: 'rgb(63, 63, 70)' }}
                       whileTap={{ scale: 0.95 }}
                       className="w-full py-4 bg-zinc-800 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-3 relative overflow-hidden"
@@ -1066,7 +1140,7 @@ export function UI() {
                       </div>
                     </motion.button>
                     <motion.button
-                      onClick={() => setView('rankpass')}
+                      onClick={() => setTimeout(() => setView('rankpass'), 0)}
                       whileHover={{ scale: 1.05, backgroundColor: 'rgba(59, 130, 246, 0.2)' }}
                       whileTap={{ scale: 0.95 }}
                       className="w-full py-4 bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold rounded-2xl transition-all flex items-center justify-center gap-3"
@@ -1103,12 +1177,13 @@ export function UI() {
               >
                 <div className="flex justify-between items-center mb-8 shrink-0">
                   <motion.button 
-                    onClick={() => setView('lobby')}
-                    whileHover={{ scale: 1.2, backgroundColor: 'rgba(255,255,255,0.1)' }}
-                    whileTap={{ scale: 0.8 }}
-                    className="p-2 bg-white/5 rounded-full text-white transition-colors"
+                    onClick={() => setTimeout(() => setView('lobby'), 0)}
+                    whileHover={{ scale: 1.1, backgroundColor: 'rgba(255,255,255,0.1)' }}
+                    whileTap={{ scale: 0.9 }}
+                    className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-2xl text-white transition-all hover:text-blue-400 group/back"
                   >
-                    <ChevronLeft size={24} />
+                    <ChevronLeft size={20} className="group-hover/back:-translate-x-1 transition-transform" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Lobby</span>
                   </motion.button>
                   <div className="text-center">
                     <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase whitespace-nowrap">
@@ -1285,31 +1360,55 @@ export function UI() {
                       <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between mb-1 px-1">
                           <h3 className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">DAILY CHALLENGES</h3>
-                          <span className="text-[9px] font-bold text-blue-400 uppercase italic">Refreshes in 12h</span>
+                          <span className="text-[9px] font-bold text-blue-400 uppercase italic">
+                            {profile?.lastMissionReset ? (() => {
+                              const resetAt = new Date(profile.lastMissionReset).getTime() + 12 * 60 * 60 * 1000;
+                              const diff = resetAt - now;
+                              if (diff <= 0) return 'Resetting...';
+                              const h = Math.floor(diff / (1000 * 60 * 60));
+                              const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                              const s = Math.floor((diff % (1000 * 60)) / 1000);
+                              return `New missions in ${h}h ${m}m ${s}s`;
+                            })() : 'Refreshing...'}
+                          </span>
                         </div>
                         <div className="grid grid-cols-1 gap-2">
-                          {[
-                            { label: 'Survival Expert', desc: 'Reach 1000 Length in one life', rp: 50, progress: Math.min(100, Math.floor((profile?.highScore || 0) / 1000 * 100)) },
-                            { label: 'Combat Ready', desc: 'Eliminate 5 Players today', rp: 100, progress: 20 },
-                            { label: 'Match Veteran', desc: 'Play 3 separate matches', rp: 30, progress: 60 }
-                          ].map((mission, i) => (
-                            <div key={`mission-${i}`} className="bg-zinc-900/50 border border-white/5 p-3 rounded-xl flex items-center justify-between group hover:border-yellow-400/30 transition-all">
+                          {(profile?.missions || []).map((mission, i) => (
+                            <div key={`mission-${mission.id}`} className={`bg-zinc-900/50 border border-white/5 p-3 rounded-xl flex items-center justify-between group transition-all ${mission.isClaimed ? 'opacity-50' : 'hover:border-yellow-400/30'}`}>
                               <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-white/5 border border-white/10 rounded-lg flex items-center justify-center text-white/20 group-hover:text-yellow-400 transition-colors">
-                                  {i === 0 ? <Trophy size={18} /> : i === 1 ? <Skull size={18} /> : <Zap size={18} />}
+                                <div className={`w-10 h-10 bg-white/5 border border-white/10 rounded-lg flex items-center justify-center transition-colors ${mission.current >= mission.goal ? 'text-green-400 border-green-500/30' : 'text-white/20 group-hover:text-yellow-400'}`}>
+                                  {mission.type === 'score' ? <Trophy size={18} /> : mission.type === 'kill' ? <Skull size={18} /> : <Zap size={18} />}
                                 </div>
                                 <div className="flex flex-col min-w-0">
                                   <span className="text-xs font-black text-white uppercase italic tracking-tighter leading-none">{mission.label}</span>
                                   <span className="text-[9px] text-white/30 truncate max-w-[140px] mt-1 pr-2">{mission.desc}</span>
                                   <div className="w-24 h-0.5 bg-white/5 rounded-full overflow-hidden mt-1.5">
-                                    <div className="h-full bg-blue-500" style={{ width: `${mission.progress}%` }} />
+                                    <div className={`h-full transition-all duration-500 ${mission.current >= mission.goal ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-blue-500'}`} style={{ width: `${(mission.current / mission.goal) * 100}%` }} />
                                   </div>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-1.5 bg-yellow-400/10 px-2.5 py-1.5 rounded-lg border border-yellow-400/20 group-hover:scale-105 transition-transform shrink-0">
-                                <Zap size={10} className="text-yellow-400 fill-yellow-400" />
-                                <span className="text-[10px] font-black text-yellow-400 italic">+{mission.rp}</span>
-                              </div>
+                              
+                              {mission.isClaimed ? (
+                                <div className="flex items-center gap-1.5 bg-green-500/10 px-2.5 py-1.5 rounded-lg border border-green-500/20">
+                                  <Check size={10} className="text-green-500" strokeWidth={4} />
+                                  <span className="text-[10px] font-black text-green-500 italic">CLAIMED</span>
+                                </div>
+                              ) : mission.current >= mission.goal ? (
+                                <motion.button
+                                  whileHover={{ scale: 1.05 }}
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={() => claimMission(mission.id)}
+                                  className="flex items-center gap-1.5 bg-green-500 text-white px-2.5 py-1.5 rounded-lg shadow-[0_0_15px_rgba(34,197,94,0.3)]"
+                                >
+                                  <span className="text-[10px] font-black italic">CLAIM</span>
+                                  <span className="text-[10px] font-black">+{mission.rp}</span>
+                                </motion.button>
+                              ) : (
+                                <div className="flex items-center gap-1.5 bg-yellow-400/10 px-2.5 py-1.5 rounded-lg border border-yellow-400/20 group-hover:scale-105 transition-transform shrink-0">
+                                  <Zap size={10} className="text-yellow-400 fill-yellow-400" />
+                                  <span className="text-[10px] font-black text-yellow-400 italic">+{mission.rp}</span>
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>

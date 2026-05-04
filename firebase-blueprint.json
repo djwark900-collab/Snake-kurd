@@ -15,6 +15,23 @@
         "ownedSkins": { "type": "array", "items": { "type": "string" } },
         "currentSkin": { "type": "string" },
         "highScore": { "type": "integer" },
+        "missions": { 
+          "type": "array", 
+          "items": { 
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "desc": { "type": "string" },
+              "rp": { "type": "integer" },
+              "goal": { "type": "integer" },
+              "current": { "type": "integer" },
+              "isClaimed": { "type": "boolean" },
+              "type": { "type": "string", "enum": ["score", "kill", "match"] }
+            }
+          }
+        },
+        "lastMissionReset": { "type": "string", "format": "date-time" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },

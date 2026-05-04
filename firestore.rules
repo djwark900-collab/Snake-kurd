@@ -47,6 +47,8 @@ service cloud.firestore {
              (!('photoURL' in data) || (data.photoURL == null || (data.photoURL is string && data.photoURL.size() <= 1000000))) &&
              (!('email' in data) || (data.email is string && data.email.size() <= 256)) &&
              (!('highScore' in data) || (data.highScore is int && data.highScore >= 0)) &&
+             (!('missions' in data) || (data.missions is list && data.missions.size() <= 10)) &&
+             (!('lastMissionReset' in data) || (data.lastMissionReset is string && data.lastMissionReset.size() <= 64)) &&
              (!('createdAt' in data) || data.createdAt is timestamp) &&
              (!('updatedAt' in data) || data.updatedAt is timestamp);
     }
@@ -89,7 +91,7 @@ service cloud.firestore {
                       incoming().uid == existing().uid &&
                       (
                         // Action: Update Stats/Profile
-                        incoming().diff(existing()).affectedKeys().hasOnly(['money', 'ownedSkins', 'currentSkin', 'highScore', 'updatedAt', 'displayName', 'photoURL', 'rp', 'claimedRewards'])
+                        incoming().diff(existing()).affectedKeys().hasOnly(['money', 'ownedSkins', 'currentSkin', 'highScore', 'updatedAt', 'displayName', 'photoURL', 'rp', 'claimedRewards', 'missions', 'lastMissionReset'])
                       );
     }
 

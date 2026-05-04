@@ -55,6 +55,17 @@ export const SKINS: Skin[] = [
   { id: 'admin-neon', name: 'Admin Neon', type: 'pattern', value: 'admin', price: 0 },
 ];
 
+interface Mission {
+  id: string;
+  label: string;
+  desc: string;
+  rp: number;
+  goal: number;
+  current: number;
+  isClaimed: boolean;
+  type: 'score' | 'kill' | 'match';
+}
+
 interface UserProfile {
   uid: string;
   displayName: string;
@@ -65,6 +76,8 @@ interface UserProfile {
   ownedSkins: string[];
   currentSkin: string;
   highScore?: number;
+  missions?: Mission[];
+  lastMissionReset?: string;
 }
 
 export const RP_REWARDS: Record<number, { type: 'money' | 'skin' | 'head', value: any, label: string }> = {
@@ -133,6 +146,10 @@ interface GameStore {
   setMoney: (amount: number) => Promise<void>;
   resetAllUsersMoney: () => Promise<void>;
   claimReward: (level: number) => Promise<void>;
+  claimMission: (missionId: string) => Promise<void>;
+  updateMissionProgress: (type: 'score' | 'kill' | 'match', value: number) => Promise<void>;
+  deleteDailyScore: (scoreId: string) => Promise<void>;
+  clearDailyLeaderboard: () => Promise<void>;
   _profileUnsubscribe?: (() => void) | null;
   _skinsUnsubscribe?: (() => void) | null;
 }
@@ -259,6 +276,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       // Reward killer with money and RP
       if (data.killerId === playerId && user && profile) {
+        get().updateMissionProgress('kill', 1);
         const userRef = doc(db, 'users', user.uid);
         updateDoc(userRef, {
           money: increment(50),
@@ -271,6 +289,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const myPlayer = gameState.players[playerId];
         if (myPlayer) {
           const score = Math.floor(myPlayer.score);
+          get().updateMissionProgress('score', score);
+          get().updateMissionProgress('match', 1);
           set({ 
             isDead: true, 
             lastDeathStats: { 
@@ -425,6 +445,70 @@ export const useGameStore = create<GameStore>((set, get) => ({
           }
         };
         checkReset();
+
+        // Mission Reset Logic (12h)
+        const checkMissions = async () => {
+          const { profile, user: currentUser } = get();
+          if (!currentUser) return;
+
+          const now = Date.now();
+          const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+          
+          let lastReset = 0;
+          if (profile?.lastMissionReset) {
+            lastReset = new Date(profile.lastMissionReset).getTime();
+          }
+
+          if (now - lastReset > TWELVE_HOURS || !profile?.missions) {
+            const nextReset = lastReset === 0 ? now : lastReset + TWELVE_HOURS;
+            // If we're way past it, align to the current window
+            const windowReset = now - ((now - nextReset) % TWELVE_HOURS);
+            
+            const newMissions: Mission[] = [
+              {
+                id: 'mission-score-' + windowReset,
+                type: 'score',
+                label: 'Score Expert',
+                desc: 'Reach 1000 score in one life',
+                goal: 1000,
+                current: 0,
+                rp: 50,
+                isClaimed: false
+              },
+              {
+                id: 'mission-kills-' + windowReset,
+                type: 'kill',
+                label: 'Eliminator',
+                desc: 'Eliminate 5 players in one life',
+                goal: 5,
+                current: 0,
+                rp: 100,
+                isClaimed: false
+              },
+              {
+                id: 'mission-matches-' + windowReset,
+                type: 'match',
+                label: 'Veteran',
+                desc: 'Play 3 matches',
+                goal: 3,
+                current: 0,
+                rp: 30,
+                isClaimed: false
+              }
+            ];
+
+            const userRef = doc(db, 'users', currentUser.uid);
+            try {
+              await updateDoc(userRef, {
+                missions: newMissions,
+                lastMissionReset: new Date(windowReset).toISOString()
+              });
+            } catch (err) {
+              console.error('Failed to reset missions', err);
+            }
+          }
+        };
+        checkMissions();
 
         try {
           const userRef = doc(db, 'users', user.uid);
@@ -589,7 +673,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const id = `${Date.now()}-${Math.random()}`;
     const newNotif = { id, message };
-    set(state => ({ notifications: [...state.notifications, newNotif] }));
+
+    setTimeout(() => {
+      set(state => ({ notifications: [...state.notifications, newNotif] }));
+    }, 0);
+
     setTimeout(() => {
       set(state => ({ notifications: get().notifications.filter(n => n.id !== id) }));
       delete (globalThis as any)[lastNotifKey];
@@ -645,6 +733,62 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   resetAllUsersMoney: async () => {
     // ...
+  },
+
+  claimMission: async (missionId: string) => {
+    const { profile, user } = get();
+    if (!profile || !user || !profile.missions) return;
+
+    const mission = profile.missions.find(m => m.id === missionId);
+    if (!mission || mission.current < mission.goal || mission.isClaimed) return;
+
+    const userRef = doc(db, 'users', user.uid);
+    try {
+      const updatedMissions = profile.missions.map(m => 
+        m.id === missionId ? { ...m, isClaimed: true } : m
+      );
+
+      await updateDoc(userRef, {
+        missions: updatedMissions,
+        rp: increment(mission.rp)
+      });
+
+      get().addNotification(`Claimed ${mission.rp} RP from ${mission.label}!`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}/missions`);
+    }
+  },
+
+  updateMissionProgress: async (type: 'score' | 'kill' | 'match', value: number) => {
+    const { profile, user } = get();
+    if (!profile || !user || !profile.missions) return;
+
+    let changed = false;
+    const updatedMissions = profile.missions.map(m => {
+      if (m.type === type && m.current < m.goal && !m.isClaimed) {
+        let newVal = m.current;
+        if (type === 'score') {
+          newVal = Math.max(m.current, value);
+        } else {
+          newVal = m.current + value;
+        }
+        
+        if (newVal !== m.current) {
+          changed = true;
+          return { ...m, current: Math.min(newVal, m.goal) };
+        }
+      }
+      return m;
+    });
+
+    if (changed) {
+      const userRef = doc(db, 'users', user.uid);
+      try {
+        await updateDoc(userRef, { missions: updatedMissions });
+      } catch (error) {
+        console.error('Failed to update mission progress', error);
+      }
+    }
   },
 
   claimReward: async (level) => {
@@ -705,6 +849,34 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
   },
 
+  deleteDailyScore: async (scoreId: string) => {
+    const { isAdmin } = get();
+    if (!isAdmin) throw new Error('Unauthorized');
+
+    try {
+      await deleteDoc(doc(db, 'dailyScores', scoreId));
+      get().addNotification('Successfully deleted daily ranking entry!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `dailyScores/${scoreId}`);
+    }
+  },
+
+  clearDailyLeaderboard: async () => {
+    const { isAdmin } = get();
+    if (!isAdmin) throw new Error('Unauthorized');
+
+    try {
+      const dailyRef = collection(db, 'dailyScores');
+      const snapshot = await getDocs(dailyRef);
+      const batch = writeBatch(db);
+      snapshot.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      get().addNotification('Cleared all daily rankings!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'dailyScores');
+    }
+  },
+
   sendPlayerState: (data) => {
     const { socket } = get();
     if (socket) {
@@ -724,10 +896,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const currentMoney = profile.money;
         const newMoney = currentMoney + 1;
         
-        // Optimistic local update
-        set(state => ({
-          profile: state.profile ? { ...state.profile, money: newMoney } : null
-        }));
+        // Optimistic local update - defer to avoid React render phase conflicts
+        setTimeout(() => {
+          set(state => ({
+            profile: state.profile ? { ...state.profile, money: newMoney } : null
+          }));
+        }, 0);
 
         // Debounced firestore update
         const moneyUpdateKey = `money_update_${user.uid}`;
