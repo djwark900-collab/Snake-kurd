@@ -125,6 +125,9 @@ interface GameStore {
   nextResetAt: number | null;
   isAdmin: boolean;
   customSkins: Skin[];
+  joystickSettings: { size: number, sensitivity: number };
+  setJoystickSettings: (settings: { size?: number, sensitivity?: number }) => void;
+  deleteAccount: () => Promise<void>;
   setLeaderboardRange: (range: 'live' | 'daily' | 'weekly' | 'all-time') => void;
   connect: () => void;
   setMobileInput: (input: 'left' | 'right' | 'boost', active: boolean) => void;
@@ -175,8 +178,33 @@ export const useGameStore = create<GameStore>((set, get) => ({
   nextResetAt: null,
   isAdmin: false,
   customSkins: [],
+  joystickSettings: { size: 100, sensitivity: 1.0 },
   _profileUnsubscribe: null,
   _skinsUnsubscribe: null,
+
+  setJoystickSettings: (newSettings) => {
+    set(state => ({
+      joystickSettings: { ...state.joystickSettings, ...newSettings }
+    }));
+  },
+
+  deleteAccount: async () => {
+    const { user, _profileUnsubscribe } = get();
+    if (!user) return;
+
+    try {
+      if (_profileUnsubscribe) _profileUnsubscribe();
+      
+      const userRef = doc(db, 'users', user.uid);
+      await deleteDoc(userRef);
+      await user.delete();
+      
+      set({ user: null, profile: null, isAdmin: false });
+      get().addNotification('Account deleted successfully.');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `users/${user?.uid}`);
+    }
+  },
 
   setLeaderboardRange: async (range) => {
     set({ leaderboardRange: range });

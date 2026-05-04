@@ -73,9 +73,22 @@ export function UI() {
   const dailyLeaderboard = useGameStore(state => state.dailyLeaderboard);
   const nextResetAt = useGameStore(state => state.nextResetAt);
   const setLeaderboardRange = useGameStore(state => state.setLeaderboardRange);
+  const joystickSettings = useGameStore(state => state.joystickSettings);
+  const setJoystickSettings = useGameStore(state => state.setJoystickSettings);
+  const deleteAccount = useGameStore(state => state.deleteAccount);
   const [view, setView] = useState<'lobby' | 'shop' | 'leaderboard' | 'rankpass'>('lobby');
   const [showHUDLeaderboard, setShowHUDLeaderboard] = useState(true);
   const [showMinimap, setShowMinimap] = useState(true);
+  const [isPortrait, setIsPortrait] = useState(false);
+
+  useEffect(() => {
+    const checkOrientation = () => {
+      setIsPortrait(window.innerHeight > window.innerWidth && window.innerWidth < 768);
+    };
+    checkOrientation();
+    window.addEventListener('resize', checkOrientation);
+    return () => window.removeEventListener('resize', checkOrientation);
+  }, []);
   const [joystickStart, setJoystickStart] = useState<{ x: number, y: number } | null>(null);
   const [joystickPos, setJoystickPos] = useState<{ x: number, y: number }>({ x: 0, y: 0 });
 
@@ -95,7 +108,7 @@ export function UI() {
     const dx = clientX - joystickStart.x;
     const dy = clientY - joystickStart.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const maxDist = 50;
+    const maxDist = (joystickSettings.size / 2) * joystickSettings.sensitivity;
     
     const limitedX = (dx / dist) * Math.min(dist, maxDist);
     const limitedY = (dy / dist) * Math.min(dist, maxDist);
@@ -409,6 +422,21 @@ export function UI() {
 
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4">
+      {/* Orientation Overlay */}
+      {isPortrait && (
+        <div className="fixed inset-0 z-[1000] bg-black flex flex-col items-center justify-center p-8 text-center pointer-events-auto">
+          <motion.div
+            animate={{ rotate: [0, 90, 0] }}
+            transition={{ duration: 2, repeat: Infinity }}
+            className="mb-6 text-blue-500"
+          >
+            <Share2 size={64} className="rotate-90" />
+          </motion.div>
+          <h2 className="text-2xl font-black text-white mb-2 uppercase italic">Rotate Device</h2>
+          <p className="text-white/40 text-sm">Please rotate your device to landscape for the best experience.</p>
+        </div>
+      )}
+
       {/* Top Bar - High Priority Layer */}
       <div className="absolute inset-x-0 top-0 p-4 pointer-events-none z-[120]">
         <div className="flex justify-between items-start">
@@ -518,7 +546,8 @@ export function UI() {
         <div className="absolute inset-x-0 bottom-8 flex justify-between px-8 pointer-events-none md:hidden items-center">
           {/* Joystick Base */}
           <div 
-            className="w-32 h-32 rounded-full bg-white/5 border-2 border-white/10 backdrop-blur-md flex items-center justify-center pointer-events-auto relative mt-auto"
+            className="rounded-full bg-white/5 border-2 border-white/10 backdrop-blur-md flex items-center justify-center pointer-events-auto relative mt-auto"
+            style={{ width: joystickSettings.size, height: joystickSettings.size }}
             onTouchStart={handleJoystickStart}
             onTouchMove={handleJoystickMove}
             onTouchEnd={handleJoystickEnd}
@@ -530,7 +559,8 @@ export function UI() {
             <motion.div 
               animate={{ x: joystickPos.x, y: joystickPos.y }}
               transition={{ type: 'spring', damping: 20, stiffness: 300, mass: 0.5 }}
-              className="w-12 h-12 rounded-full bg-white shadow-[0_0_15px_rgba(255,255,255,0.5)] border-2 border-blue-400"
+              className="rounded-full bg-white shadow-[0_0_15px_rgba(255,255,255,0.5)] border-2 border-blue-400"
+              style={{ width: joystickSettings.size * 0.4, height: joystickSettings.size * 0.4 }}
             />
             
             {/* Visual Guide */}
@@ -611,6 +641,36 @@ export function UI() {
                 </div>
               </div>
 
+              <div className="space-y-4 pt-4 border-t border-white/5">
+                <h4 className="text-[10px] font-black text-white/20 uppercase tracking-widest pl-1">Control Customization</h4>
+                <div className="space-y-4 text-white">
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-[10px] font-bold text-white/40 uppercase">
+                      <span>Stick Size</span>
+                      <span className="text-blue-400 font-mono">{joystickSettings.size}px</span>
+                    </div>
+                    <input 
+                      type="range" min="80" max="200" 
+                      value={joystickSettings.size} 
+                      onChange={(e) => setJoystickSettings({ size: parseInt(e.target.value) })}
+                      className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500 pointer-events-auto"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-[10px] font-bold text-white/40 uppercase">
+                      <span>Sensitivity</span>
+                      <span className="text-blue-400 font-mono">{joystickSettings.sensitivity.toFixed(1)}x</span>
+                    </div>
+                    <input 
+                      type="range" min="0.5" max="3.0" step="0.1"
+                      value={joystickSettings.sensitivity} 
+                      onChange={(e) => setJoystickSettings({ sensitivity: parseFloat(e.target.value) })}
+                      className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500 pointer-events-auto"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="pt-4 border-t border-white/5 flex flex-col gap-2">
                 {isAlive && (
                   <button 
@@ -647,6 +707,16 @@ export function UI() {
                 >
                   <LogOut size={14} />
                   Sign Out
+                </button>
+                <button 
+                   onClick={() => {
+                     if(confirm("DANGER: This will PERMANENTLY delete your account and all progress. This action cannot be undone. Proceed?")) {
+                       deleteAccount();
+                     }
+                   }}
+                   className="w-full py-2 text-red-500/30 text-[9px] font-black uppercase tracking-widest hover:text-red-500 transition-colors mt-2"
+                >
+                  Delete Account Forever
                 </button>
               </div>
             </div>
